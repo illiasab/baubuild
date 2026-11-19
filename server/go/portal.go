@@ -322,25 +322,9 @@ func mentorPortal(state map[string]any, projectID, text string) map[string]any {
 		state["messages"] = messages
 	}
 	thread := plist(messages[projectID])
-	thread = append(thread, map[string]any{"role": "student", "text": text}, map[string]any{"role": "mentor", "text": portalMentor(text)})
+	thread = append(thread, map[string]any{"role": "student", "text": text}, map[string]any{"role": "mentor", "text": mentorReply(text, nil, nil)})
 	messages[projectID] = thread
 	return map[string]any{"ok": true}
-}
-
-func portalMentor(text string) string {
-	folded := strings.ToLower(text)
-	switch {
-	case strings.Contains(folded, "date") || strings.Contains(folded, "string") || strings.Contains(folded, "sort") || strings.Contains(folded, "2026"):
-		return "Compare Date objects, or timestamps from those objects. String order only matches calendar order when every part is zero-padded."
-	case strings.Contains(folded, "test"):
-		return "Add one case for yesterday, one for today, and one for a blank field. Assert the message the form shows, not only true or false."
-	case strings.Contains(folded, "screen") || strings.Contains(folded, "reader") || strings.Contains(folded, "aria") || strings.Contains(folded, "announce"):
-		return `Put the message in the form and give that node role="alert", or aria-live="assertive", so a screen reader speaks it when it appears.`
-	case strings.Contains(folded, "csv") || strings.Contains(folded, "attendance") || strings.Contains(folded, "export"):
-		return "Write one row of headers, then one row per person. Keep the club name in its own column so staff can filter it."
-	default:
-		return "Say what you expected and what the code did instead. I’ll point you at the check. You write the change, then push it."
-	}
 }
 
 func bioPortal(state map[string]any, bio string) map[string]any {

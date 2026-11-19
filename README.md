@@ -10,7 +10,7 @@ go test ./...
 PORT=8080 go run .
 ```
 
-Microsoft sign-in uses Entra ID as a public client. Set `MICROSOFT_CLIENT_ID`. `MICROSOFT_TENANT` defaults to `common`. Do not set a client secret. Redirect URIs are `com.vesper.baubuild://auth` and `http://127.0.0.1`. Sign-in still accepts only `@stu.bau.edu` and `@bau.edu`.
+The mentor calls Gemini when `MENTOR_API_KEY` is set. `MENTOR_BASE_URL` is the OpenAI-compatible base, and `MENTOR_MODEL` selects the model. Without a key, the mentor uses its built-in replies.
 
 ## Kotlin Multiplatform app
 
