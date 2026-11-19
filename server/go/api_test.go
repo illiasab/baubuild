@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,23 +20,51 @@ func TestAPI(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	os.Setenv("BAU_ADMIN_EMAILS", "lead.admin@bau.edu")
+	os.Setenv("SMTP_HOST", "test")
 	os.Unsetenv("MENTOR_API_KEY")
+	var mailed string
+	originalMail := deliverCode
+	deliverCode = func(to, subject, body string) error {
+		mailed = body
+		return nil
+	}
+	t.Cleanup(func() { deliverCode = originalMail })
 	server := httptest.NewServer(&app{db: db})
 	t.Cleanup(server.Close)
-	original := Identify
-	t.Cleanup(func() { Identify = original })
-
+	device := map[string]any{"platform": "ios", "app_version": "1.0.0"}
+	codeOf := func() string {
+		t.Helper()
+		for _, line := range strings.Split(mailed, "\n") {
+			line = strings.TrimSpace(line)
+			if len(line) == 6 {
+				return line
+			}
+		}
+		t.Fatalf("no code in %q", mailed)
+		return ""
+	}
 	signIn := func(email, name string) map[string]any {
 		t.Helper()
-		Identify = func(code, verifier, redirect string) (string, string, error) {
-			return email, name, nil
+		status, body := call(t, server, "POST", "/v1/auth/register", "", map[string]any{
+			"name": name, "email": email, "password": "Password1", "device": device,
+		})
+		if status == 409 {
+			status, body = call(t, server, "POST", "/v1/auth/login", "", map[string]any{
+				"email": email, "password": "Password1", "device": device,
+			})
+			if status != 200 {
+				t.Fatalf("login %s: %d %v", email, status, body)
+			}
+			return body
 		}
-		status, body := call(t, server, "POST", "/v1/auth/microsoft/exchange", "", map[string]any{
-			"code": "code", "code_verifier": "verifier", "redirect_uri": "baubuild://auth",
-			"device": map[string]any{"platform": "ios", "app_version": "1.0.0"},
+		if status != 201 {
+			t.Fatalf("register %s: %d %v", email, status, body)
+		}
+		status, body = call(t, server, "POST", "/v1/auth/verify-email", "", map[string]any{
+			"email": email, "code": codeOf(), "device": device,
 		})
 		if status != 200 {
-			t.Fatalf("sign in %s: %d %v", email, status, body)
+			t.Fatalf("verify %s: %d %v", email, status, body)
 		}
 		return body
 	}
@@ -44,15 +73,29 @@ func TestAPI(t *testing.T) {
 		return callRaw(t, server, method, path, token, payload)
 	}
 
-	Identify = func(code, verifier, redirect string) (string, string, error) {
-		return "person@gmail.com", "Outsider", nil
-	}
-	status, body := call(t, server, "POST", "/v1/auth/microsoft/exchange", "", map[string]any{
-		"code": "code", "code_verifier": "verifier", "redirect_uri": "http://127.0.0.1/callback",
-		"device": map[string]any{"platform": "ios", "app_version": "1.0.0"},
+	status, body := call(t, server, "POST", "/v1/auth/register", "", map[string]any{
+		"name": "Outsider", "email": "person@gmail.com", "password": "Password1", "device": device,
 	})
 	if status != 403 || body["error"].(map[string]any)["code"] != "domain_not_allowed" {
 		t.Fatalf("gmail: %d %v", status, body)
+	}
+	status, pending := call(t, server, "POST", "/v1/auth/register", "", map[string]any{
+		"name": "Bea Early", "email": "early@stu.bau.edu", "password": "Password1", "device": device,
+	})
+	if status != 201 || pending["verification_required"] != true {
+		t.Fatalf("pending %d %v", status, pending)
+	}
+	status, denied := call(t, server, "POST", "/v1/auth/login", "", map[string]any{
+		"email": "early@stu.bau.edu", "password": "Password1", "device": device,
+	})
+	if status != 403 || denied["error"].(map[string]any)["code"] != "email_not_verified" {
+		t.Fatalf("unverified %d %v", status, denied)
+	}
+	status, wrong := call(t, server, "POST", "/v1/auth/login", "", map[string]any{
+		"email": "early@stu.bau.edu", "password": "nope-nope", "device": device,
+	})
+	if status != 401 || wrong["error"].(map[string]any)["code"] != "invalid_credentials" {
+		t.Fatalf("credentials %d %v", status, wrong)
 	}
 
 	student := signIn("ada@stu.bau.edu", "Ada Lovelace")
@@ -122,7 +165,7 @@ func TestAPI(t *testing.T) {
 	if len(tasks["items"].([]any)) < 1 {
 		t.Fatal("tasks")
 	}
-	_, pending, _ := authed("POST", "/v1/projects/shuttle/join", token, nil)
+	_, pending, _ = authed("POST", "/v1/projects/shuttle/join", token, nil)
 	if pending["result"] != "pending_approval" {
 		t.Fatal(pending)
 	}
@@ -145,7 +188,7 @@ func TestAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, denied, _ := authed("POST", "/v1/inquiries", token, map[string]any{"title": "x"})
+	code, denied, _ = authed("POST", "/v1/inquiries", token, map[string]any{"title": "x"})
 	if denied["error"].(map[string]any)["code"] != "role_required" {
 		t.Fatal(denied)
 	}

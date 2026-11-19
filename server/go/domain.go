@@ -58,13 +58,6 @@ var exam = []examQ{
 	{"score", "A project requires a score of 300 and yours is 180. What should the portal do if you request it?", []string{"Join you immediately", "Refuse the request and leave your memberships unchanged", "Lower the project's minimum score", "Mark the project approved"}, 1},
 }
 
-var Identify = func(code, verifier, redirect string) (email, name string, err error) {
-	if strings.TrimSpace(os.Getenv("MICROSOFT_CLIENT_ID")) == "" {
-		return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
-	}
-	return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
-}
-
 func nowISO() string { return time.Now().UTC().Format("2006-01-02T15:04:05Z") }
 
 func parseISO(value string) (time.Time, error) {
@@ -349,37 +342,6 @@ func userFromAccess(tx *sql.Tx, header string) (map[string]any, map[string]any, 
 		return nil, nil, fail(401, "unauthorized", "Sign in again.")
 	}
 	return user, session, nil
-}
-
-func exchange(tx *sql.Tx, body map[string]any) (map[string]any, error) {
-	code := strings.TrimSpace(asString(body["code"]))
-	verifier := strings.TrimSpace(asString(body["code_verifier"]))
-	redirect := strings.TrimSpace(asString(body["redirect_uri"]))
-	if code == "" || verifier == "" || redirect == "" {
-		return nil, fail(400, "invalid_body", "code, code_verifier, and redirect_uri are required.")
-	}
-	device, _ := body["device"].(map[string]any)
-	if device == nil {
-		return nil, fail(400, "invalid_body", "device.platform and device.app_version are required.")
-	}
-	platform := asString(device["platform"])
-	version := strings.TrimSpace(asString(device["app_version"]))
-	allowed := map[string]bool{"ios": true, "macos": true, "android": true, "windows": true, "linux": true}
-	if !allowed[platform] {
-		return nil, fail(400, "invalid_body", "device.platform must be ios, macos, android, windows, or linux.")
-	}
-	if version == "" || len(version) > 40 {
-		return nil, fail(400, "invalid_body", "device.app_version is required.")
-	}
-	email, name, err := Identify(code, verifier, redirect)
-	if err != nil {
-		return nil, err
-	}
-	user, err := upsertFromEmail(tx, email, name)
-	if err != nil {
-		return nil, err
-	}
-	return issueSession(tx, user, platform, version)
 }
 
 func refresh(tx *sql.Tx, body map[string]any) (map[string]any, error) {

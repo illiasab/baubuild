@@ -1,16 +1,9 @@
 # BAU BUILD — backend requirements (API v1, Go)
 
-> **Blocking right now (checked 2026-11-19, `https://api.baubuild.vesperconnect.org`):** the Go API is live
-> (`GET /v1/config` → 200), but `POST /v1/auth/microsoft/exchange` → **503 `microsoft_not_configured`**. Real sign-in
-> needs the Entra app registration: client ID + tenant ID shared with the app team, redirect URIs
-> `com.vesper.baubuild://auth` and `http://127.0.0.1` under "Mobile and desktop applications", "Allow public client
-> flows" on, `MICROSOFT_CLIENT_ID` set on the server, **no client secret** (public clients). Also: `GET /healthz`
-> currently answers `401 unauthorized` — health checks must be public for load balancers (zero-downtime deploys).
-> **Go server bug:** `Identify` in `server/go/domain.go` returns `503 microsoft_not_configured` in **both** branches —
-> even with `MICROSOFT_CLIENT_ID` set it never redeems the code. Implement: POST
-> `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token` (`client_id`, `grant_type=authorization_code`, `code`,
-> `code_verifier`, `redirect_uri`, scope `openid profile email offline_access User.Read`, **no client secret**), then
-> Graph `GET /me` (`mail` / `userPrincipalName`, `displayName`) → apply the domain rule.
+> Sign-in is email and password. `@stu.bau.edu` is a student (checked first), `@bau.edu` is staff, anything else is
+> `403 domain_not_allowed`. `BAU_ADMIN_EMAILS` is an admin when the domain is allowed. Lead is earned, not assigned
+> from the email. A 6-digit code is emailed on register, resend, and password reset. `SMTP_HOST` must be set or those
+> routes return `503 email_not_configured`. Microsoft sign-in is not used.
 
 Everything the apps (iOS, Android, macOS, Windows, Linux) need from the backend. Built on the current API
 (`docs/openapi.json`, `docs/index.html`); items marked **✅ exists** are already there, **🆕** are new, **✏️** change
@@ -42,9 +35,12 @@ an existing endpoint. Language-agnostic — written for the Go rewrite.
 
 | | Endpoint | Notes |
 |---|---|---|
-| ✅ | `POST /v1/auth/microsoft/exchange` | PKCE code → `{access_token, refresh_token, expires_in, user, entitlement}`; `403 domain_not_allowed`; set `MICROSOFT_CLIENT_ID` (today `503 microsoft_not_configured`). |
+| ✅ | `POST /v1/auth/register` | `{name, email, password, device}`. Domain rule above. Emails a 6-digit code. `409 email_taken` once verified. |
+| ✅ | `POST /v1/auth/verify-email` | `{email, code, device}` → tokens. `400 invalid_code`. |
+| ✅ | `POST /v1/auth/resend-code` | `{email}`. `429 too_many_attempts` inside one minute. |
+| ✅ | `POST /v1/auth/login` | `{email, password, device}` → tokens. `401 invalid_credentials`, `403 email_not_verified`, `429 too_many_attempts` after 5 failures. |
+| ✅ | `POST /v1/auth/password/forgot`, `POST /v1/auth/password/reset` | Forgot emails a code and always returns ok for an allowed domain. Reset is `{email, code, password}`. |
 | ✅ | `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET/DELETE /v1/auth/sessions` | Refresh rotation; reuse → `401 refresh_reused`. |
-| — | Email + password login | **Not needed** — decided Microsoft only; apps pass the email as `login_hint`. |
 | ✅ | `GET /v1/me/entitlement`, billing endpoints | Phase 2 (paid non-BAU users). |
 | ✏️ | `GET /v1/me` | Add `roles[]`, `display_name`, `avatar_url`, `github_username`, `department`, `title`, `notification_preferences`. |
 | ✏️ | `PATCH /v1/me` | Today only `bio` + `skills` (bio can't be empty). Accept `display_name`, `bio` (empty allowed), `skills`, `github_username`. |

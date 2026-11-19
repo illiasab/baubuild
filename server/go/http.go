@@ -159,16 +159,32 @@ func (a *app) route(r *http.Request) (int, any, string, error) {
 }
 
 func (a *app) withAuth(r *http.Request, path string) (int, any, string, error) {
-	public := path == "/v1/auth/microsoft/exchange" || path == "/v1/auth/refresh"
-	if public {
+	if r.Method == http.MethodPost && (path == "/v1/auth/register" || path == "/v1/auth/verify-email" || path == "/v1/auth/resend-code" || path == "/v1/auth/login" || path == "/v1/auth/password/forgot" || path == "/v1/auth/password/reset" || path == "/v1/auth/refresh") {
 		status, body, err := a.withTx(func(tx *sql.Tx) (int, any, error) {
 			body := readBody(r)
-			if path == "/v1/auth/microsoft/exchange" {
-				out, err := exchange(tx, body)
+			switch path {
+			case "/v1/auth/register":
+				out, err := registerAccount(tx, body)
+				return 201, out, err
+			case "/v1/auth/verify-email":
+				out, err := verifyEmail(tx, body)
+				return 200, out, err
+			case "/v1/auth/resend-code":
+				out, err := resendCode(tx, body)
+				return 200, out, err
+			case "/v1/auth/login":
+				out, err := loginAccount(tx, body)
+				return 200, out, err
+			case "/v1/auth/password/forgot":
+				out, err := forgotPassword(tx, body)
+				return 200, out, err
+			case "/v1/auth/password/reset":
+				out, err := resetPassword(tx, body)
+				return 200, out, err
+			default:
+				out, err := refresh(tx, body)
 				return 200, out, err
 			}
-			out, err := refresh(tx, body)
-			return 200, out, err
 		})
 		return status, body, "", err
 	}
