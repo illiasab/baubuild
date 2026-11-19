@@ -1,10 +1,8 @@
 # BAU BUILD — backend requirements (API v1, Go)
 
-> **Blocking right now (2026-11-19):** the apps now sign in with **email + password + email-code verification**
-> (§1). Until `POST /v1/auth/register`, `verify-email`, `resend-code`, `login`, `password/forgot` and
-> `password/reset` exist on `https://api.baubuild.vesperconnect.org`, nobody can sign in. Microsoft sign-in was
-> removed from the apps (`/v1/auth/microsoft/exchange` is no longer called). Also: `GET /healthz` currently answers
-> `401 unauthorized` — health checks must be public for load balancers (zero-downtime deploys).
+> Sign-in is email and password with a 6-digit code (§1). Microsoft sign-in is not used. `@stu.bau.edu` is a student,
+> `@bau.edu` is staff, and anything else is `403 domain_not_allowed`. Codes are emailed when `SMTP_HOST` is set;
+> otherwise those routes return `503 email_not_configured`. `GET /healthz` and `GET /readyz` are public.
 
 Everything the apps (iOS, Android, macOS, Windows, Linux) need from the backend. Built on the current API
 (`docs/openapi.json`, `docs/index.html`); items marked **✅ exists** are already there, **🆕** are new, **✏️** change
@@ -42,12 +40,12 @@ Token responses are `{access_token, refresh_token, expires_in, user, entitlement
 
 | | Endpoint | Contract |
 |---|---|---|
-| 🆕 | `POST /v1/auth/register {name, email, password, device}` | → `202 {verification_required: true, email, resend_after_s}` and emails a 6-digit code. Errors: `400 invalid_body`, `403 domain_not_allowed` (only stu.bau.edu / bau.edu), `409 email_taken` (a **verified** account exists; re-registering an unverified email replaces it and sends a new code), `422 weak_password` (min 8 chars, ≥1 letter + ≥1 digit; the server is authoritative). |
-| 🆕 | `POST /v1/auth/verify-email {email, code, device}` | → `200` tokens (signs in). Errors: `400 invalid_code`, `410 code_expired` (codes valid 15 min), `429 too_many_attempts` (5 wrong tries → that code is dead, a new one is needed). |
-| 🆕 | `POST /v1/auth/resend-code {email, purpose: "verify"\|"reset"}` | → `202 {resend_after_s}` (invalidates the previous code). `429 too_many_requests` with `retry_after_s`. Same 202 whether or not the account exists. |
-| 🆕 | `POST /v1/auth/login {email, password, device}` | → `200` tokens. Errors: `401 invalid_credentials` (also for an unknown email — no enumeration), `403 email_not_verified` (the server re-sends a code; include `resend_after_s` in `error`), `403 domain_not_allowed`, `429 too_many_attempts` (lockout, with `retry_after_s`). |
-| 🆕 | `POST /v1/auth/password/forgot {email}` | → always `202 {resend_after_s}` (no enumeration); emails a reset code if the account exists. `429 too_many_requests` only for rate limiting. |
-| 🆕 | `POST /v1/auth/password/reset {email, code, new_password, device}` | → `200` tokens (signs in) and **revokes all other sessions**. Errors: `400 invalid_code`, `410 code_expired`, `422 weak_password`, `429 too_many_attempts`. |
+| ✅ | `POST /v1/auth/register {name, email, password, device}` | → `202 {verification_required: true, email, resend_after_s}` and emails a 6-digit code. Errors: `400 invalid_body`, `403 domain_not_allowed` (only stu.bau.edu / bau.edu), `409 email_taken` (a **verified** account exists; re-registering an unverified email replaces it and sends a new code), `422 weak_password` (min 8 chars, ≥1 letter + ≥1 digit; the server is authoritative). |
+| ✅ | `POST /v1/auth/verify-email {email, code, device}` | → `200` tokens (signs in). Errors: `400 invalid_code`, `410 code_expired` (codes valid 15 min), `429 too_many_attempts` (5 wrong tries → that code is dead, a new one is needed). |
+| ✅ | `POST /v1/auth/resend-code {email, purpose: "verify"\|"reset"}` | → `202 {resend_after_s}` (invalidates the previous code). `429 too_many_requests` with `retry_after_s`. Same 202 whether or not the account exists. |
+| ✅ | `POST /v1/auth/login {email, password, device}` | → `200` tokens. Errors: `401 invalid_credentials` (also for an unknown email — no enumeration), `403 email_not_verified` (the server re-sends a code; include `resend_after_s` in `error`), `403 domain_not_allowed`, `429 too_many_attempts` (lockout, with `retry_after_s`). |
+| ✅ | `POST /v1/auth/password/forgot {email}` | → always `202 {resend_after_s}` (no enumeration); emails a reset code if the account exists. `429 too_many_requests` only for rate limiting. |
+| ✅ | `POST /v1/auth/password/reset {email, code, new_password, device}` | → `200` tokens (signs in) and **revokes all other sessions**. Errors: `400 invalid_code`, `410 code_expired`, `422 weak_password`, `429 too_many_attempts`. |
 | ✅ | `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET /v1/me`, `GET/DELETE /v1/auth/sessions` | Unchanged. Refresh rotation; reuse → `401 refresh_reused`. Refresh also answers `403 domain_not_allowed` when the account's domain is no longer allowed (the app signs out and explains). |
 | ❌ | `POST /v1/auth/microsoft/exchange` | No longer used by the apps. Microsoft sign-in can come back later as an extra option. |
 | ✅ | `GET /v1/me/entitlement`, billing endpoints | Phase 2 (paid non-BAU users). |
@@ -266,7 +264,7 @@ device registration for push. The app will adopt these next.
 
 ## 9. Found in the Go server (2026-11-19)
 
-- **Auth routes**: the §1 email + password routes don't exist yet (see the blocking note at the top).
+- **Auth routes**: email registration, verification, login, and password reset are in the Go server. Sending the code needs `SMTP_HOST`.
 - **GitHub token route missing**: the app calls `PUT /v1/integrations/github/token` (§4, `docs/BACKEND_GITHUB_TOKEN.md`);
   the Go server only has the OAuth connect → callback flow. Add the token route (the app keeps working and retries until
   it exists). `features.github` in `/v1/config` is `false` today; the app skips linking while it's false.

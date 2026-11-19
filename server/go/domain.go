@@ -58,13 +58,6 @@ var exam = []examQ{
 	{"score", "A project requires a score of 300 and yours is 180. What should the portal do if you request it?", []string{"Join you immediately", "Refuse the request and leave your memberships unchanged", "Lower the project's minimum score", "Mark the project approved"}, 1},
 }
 
-var Identify = func(code, verifier, redirect string) (email, name string, err error) {
-	if strings.TrimSpace(os.Getenv("MICROSOFT_CLIENT_ID")) == "" {
-		return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
-	}
-	return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
-}
-
 func nowISO() string { return time.Now().UTC().Format("2006-01-02T15:04:05Z") }
 
 func parseISO(value string) (time.Time, error) {
@@ -170,11 +163,16 @@ func scan(rows *sql.Rows) (map[string]any, error) {
 
 func classifyEmail(email string) (string, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
+	at := strings.LastIndex(email, "@")
+	domain := ""
+	if at > 0 && at < len(email)-1 {
+		domain = email[at+1:]
+	}
 	var role string
-	switch {
-	case strings.HasSuffix(email, "@stu.bau.edu"):
+	switch domain {
+	case "stu.bau.edu":
 		role = "student"
-	case strings.HasSuffix(email, "@bau.edu"):
+	case "bau.edu":
 		role = "staff"
 	default:
 		return "", fail(403, "domain_not_allowed", "Sign-in is limited to @stu.bau.edu and @bau.edu for now.")
@@ -351,37 +349,6 @@ func userFromAccess(tx *sql.Tx, header string) (map[string]any, map[string]any, 
 	return user, session, nil
 }
 
-func exchange(tx *sql.Tx, body map[string]any) (map[string]any, error) {
-	code := strings.TrimSpace(asString(body["code"]))
-	verifier := strings.TrimSpace(asString(body["code_verifier"]))
-	redirect := strings.TrimSpace(asString(body["redirect_uri"]))
-	if code == "" || verifier == "" || redirect == "" {
-		return nil, fail(400, "invalid_body", "code, code_verifier, and redirect_uri are required.")
-	}
-	device, _ := body["device"].(map[string]any)
-	if device == nil {
-		return nil, fail(400, "invalid_body", "device.platform and device.app_version are required.")
-	}
-	platform := asString(device["platform"])
-	version := strings.TrimSpace(asString(device["app_version"]))
-	allowed := map[string]bool{"ios": true, "macos": true, "android": true, "windows": true, "linux": true}
-	if !allowed[platform] {
-		return nil, fail(400, "invalid_body", "device.platform must be ios, macos, android, windows, or linux.")
-	}
-	if version == "" || len(version) > 40 {
-		return nil, fail(400, "invalid_body", "device.app_version is required.")
-	}
-	email, name, err := Identify(code, verifier, redirect)
-	if err != nil {
-		return nil, err
-	}
-	user, err := upsertFromEmail(tx, email, name)
-	if err != nil {
-		return nil, err
-	}
-	return issueSession(tx, user, platform, version)
-}
-
 func refresh(tx *sql.Tx, body map[string]any) (map[string]any, error) {
 	token, _ := body["refresh_token"].(string)
 	token = strings.TrimSpace(token)
@@ -406,15 +373,18 @@ func refresh(tx *sql.Tx, body map[string]any) (map[string]any, error) {
 	if err != nil || !expires.After(time.Now().UTC()) {
 		return nil, fail(401, "unauthorized", "Sign in again.")
 	}
+	user, err := one(tx, `SELECT * FROM users WHERE id = ?`, str(session, "user_id"))
+	if err != nil || user == nil {
+		return nil, fail(401, "unauthorized", "Sign in again.")
+	}
+	if _, err := classifyEmail(str(user, "email")); err != nil {
+		return nil, err
+	}
 	access, next := tokenURL(), tokenURL()
 	moment := time.Now().UTC()
 	if _, err := tx.Exec(`UPDATE sessions SET previous_refresh_hash = refresh_hash, access_hash = ?, refresh_hash = ?, access_expires = ?, refresh_expires = ? WHERE id = ?`,
 		hashToken(access), hashToken(next), moment.Add(accessTTL).Format("2006-01-02T15:04:05Z"), moment.Add(refreshTTL).Format("2006-01-02T15:04:05Z"), str(session, "id")); err != nil {
 		return nil, err
-	}
-	user, err := one(tx, `SELECT * FROM users WHERE id = ?`, str(session, "user_id"))
-	if err != nil || user == nil {
-		return nil, fail(401, "unauthorized", "Sign in again.")
 	}
 	pub, err := publicUser(tx, user)
 	if err != nil {
