@@ -25,5 +25,9 @@ func main() {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	log.Fatal(http.ListenAndServe(host+":"+port, &app{db: db}))
+	root := os.Getenv("BAU_ROOT")
+	if root == "" {
+		root = "."
+	}
+	log.Fatal(http.ListenAndServe(host+":"+port, newSite(&app{db: db}, root)))
 }

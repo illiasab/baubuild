@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -45,6 +46,10 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	host := strings.Split(r.Host, ":")[0]
+	if strings.EqualFold(host, "api.baubuild.vesperconnect.org") && r.URL.Path == "/" {
+		r.URL.Path = "/v1"
+	}
 	status, body, stream, err := a.route(r)
 	if err != nil {
 		if api, ok := err.(*apiError); ok {
@@ -52,6 +57,12 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 500, map[string]any{"error": map[string]any{"code": "server_error", "message": "The server could not finish that."}})
+		return
+	}
+	if strings.HasPrefix(stream, "HTML\n") {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, strings.TrimPrefix(stream, "HTML\n"))
 		return
 	}
 	if stream != "" {
@@ -104,6 +115,35 @@ func (a *app) route(r *http.Request) (int, any, string, error) {
 	}
 	if r.Method == http.MethodPost && (path == "/v1/billing/checkout" || path == "/v1/billing/apple/verify" || path == "/v1/billing/google/verify" || strings.HasPrefix(path, "/v1/billing/webhooks/")) {
 		return 0, nil, "", billingNotReady()
+	}
+	if r.Method == http.MethodGet && path == "/.well-known/apple-app-site-association" {
+		details := []any{}
+		if appID := strings.TrimSpace(os.Getenv("APPLE_APP_ID")); appID != "" {
+			details = append(details, map[string]any{"appIDs": []string{appID}, "components": []any{map[string]string{"/": "/p/*"}}})
+		}
+		return 200, map[string]any{"applinks": map[string]any{"apps": []any{}, "details": details}}, "", nil
+	}
+	if r.Method == http.MethodGet && path == "/.well-known/assetlinks.json" {
+		pkg := strings.TrimSpace(os.Getenv("ANDROID_PACKAGE"))
+		fp := strings.TrimSpace(os.Getenv("ANDROID_SHA256"))
+		if pkg == "" || fp == "" {
+			return 200, []any{}, "", nil
+		}
+		return 200, []any{map[string]any{
+			"relation": []string{"delegate_permission/common.handle_all_urls"},
+			"target":   map[string]any{"namespace": "android_app", "package_name": pkg, "sha256_cert_fingerprints": []string{fp}},
+		}}, "", nil
+	}
+	if r.Method == http.MethodGet && strings.HasPrefix(path, "/p/") {
+		status, page, err := a.share(strings.TrimPrefix(path, "/p/"))
+		if err != nil {
+			return 0, nil, "", err
+		}
+		return status, nil, "HTML\n" + page, nil
+	}
+	if r.Method == http.MethodGet && path == "/v1/integrations/github/callback" {
+		status, body, err := a.githubCallback(r.URL.Query())
+		return status, body, "", err
 	}
 
 	var status int
@@ -160,6 +200,9 @@ func (a *app) handle(tx *sql.Tx, r *http.Request, path string, user, session map
 	body := map[string]any{}
 	if r.Method == http.MethodPost || r.Method == http.MethodPatch || r.Method == http.MethodPut {
 		body = readBody(r)
+	}
+	if status, payload, ok, err := extra(tx, r, path, user, session, body); ok {
+		return status, payload, err
 	}
 	switch {
 	case r.Method == http.MethodGet && path == "/v1/auth/sessions":

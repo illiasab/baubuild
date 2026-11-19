@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "description": "Auth, projects, inquiries, workspace, review, and live updates. Human page: /docs"
   },
-  "servers": [{ "url": "https://api.vesperconnect.org" }],
+  "servers": [{ "url": "https://api.baubuild.vesperconnect.org" }],
   "tags": [
     {"name": "Auth"}, {"name": "Config"}, {"name": "Billing"}, {"name": "Profile"},
     {"name": "Projects"}, {"name": "Classes"}, {"name": "Inquiries"}, {"name": "Workspace"},

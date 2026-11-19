@@ -219,6 +219,10 @@ func minLabel(score int) string {
 }
 
 func publicUser(tx *sql.Tx, user map[string]any) (map[string]any, error) {
+	return publicUserEmail(tx, user, true)
+}
+
+func publicUserEmail(tx *sql.Tx, user map[string]any, includeEmail bool) (map[string]any, error) {
 	rows, err := many(tx, `SELECT c.code FROM enrollments e JOIN classes c ON c.id = e.class_id WHERE e.user_id = ? ORDER BY c.code`, str(user, "id"))
 	if err != nil {
 		return nil, err
@@ -237,11 +241,15 @@ func publicUser(tx *sql.Tx, user map[string]any) (map[string]any, error) {
 	if user["department"] != nil {
 		dept = str(user, "department")
 	}
-	return map[string]any{
-		"id": user["id"], "email": user["email"], "name": user["name"], "initials": user["initials"],
+	out := map[string]any{
+		"id": user["id"], "name": user["name"], "initials": user["initials"],
 		"avatar": nil, "bio": user["bio"], "role": user["role"], "department": dept, "skills": skills,
 		"classes": classes,
-	}, nil
+	}
+	if includeEmail {
+		out["email"] = user["email"]
+	}
+	return out, nil
 }
 
 func statsOf(user map[string]any) map[string]any {
