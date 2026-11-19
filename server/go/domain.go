@@ -57,12 +57,7 @@ var exam = []examQ{
 	{"score", "A project requires a score of 300 and yours is 180. What should the portal do if you request it?", []string{"Join you immediately", "Refuse the request and leave your memberships unchanged", "Lower the project's minimum score", "Mark the project approved"}, 1},
 }
 
-var Identify = func(code, verifier, redirect string) (email, name string, err error) {
-	if strings.TrimSpace(os.Getenv("MICROSOFT_CLIENT_ID")) == "" {
-		return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
-	}
-	return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
-}
+var Identify = microsoftIdentity
 
 func nowISO() string { return time.Now().UTC().Format("2006-01-02T15:04:05Z") }
 

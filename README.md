@@ -10,6 +10,8 @@ go test ./...
 PORT=8080 go run .
 ```
 
+Microsoft sign-in uses Entra ID as a public client. Set `MICROSOFT_CLIENT_ID`. `MICROSOFT_TENANT` defaults to `common`. Do not set a client secret. Redirect URIs are `com.vesper.baubuild://auth` and `http://127.0.0.1`. Sign-in still accepts only `@stu.bau.edu` and `@bau.edu`.
+
 ## Kotlin Multiplatform app
 
 This is a Kotlin Multiplatform project targeting Android, iOS, Web, Desktop (JVM), Server.
