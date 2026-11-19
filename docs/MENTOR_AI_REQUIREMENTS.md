@@ -60,8 +60,7 @@ The knowledge base (KB) is what makes reviews BAU-specific. The product owner se
 - Chunk documents (~500–1,000 tokens, keep rule boundaries intact); store chunks with tags, language, project,
   visibility, version.
 - Index for search: start with **Postgres full-text search** (simple, good enough for rule lookup by keyword), add
-  semantic search later with an embedding model (e.g. Voyage AI) + `pgvector`. Anthropic's API has no embeddings
-  endpoint.
+  semantic search later with any embedding model + `pgvector`.
 - At request time retrieve: always the project brief + the task's acceptance criteria + rules for the languages in the
   diff; plus top-k chunks for the question/diff. Filter by `visibility` (students never get `staff_only`).
 
