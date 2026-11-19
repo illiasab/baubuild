@@ -23,5 +23,3 @@ captures
 node_modules/
 static/
 presentation/
-docs/index.html
-docs/openapi.json

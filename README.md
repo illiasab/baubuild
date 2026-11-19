@@ -2,7 +2,7 @@
 
 ## Backend
 
-The HTTP API is in `server/bau` (`/v1` routes, domain rules, and tests).
+The HTTP API is in `server/bau` (`/v1` routes, domain rules, and tests). The reference is in `docs/index.html`, and the OpenAPI spec is `docs/openapi.json`.
 
 ```bash
 cd server/bau
