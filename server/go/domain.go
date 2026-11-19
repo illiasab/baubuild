@@ -57,7 +57,12 @@ var exam = []examQ{
 	{"score", "A project requires a score of 300 and yours is 180. What should the portal do if you request it?", []string{"Join you immediately", "Refuse the request and leave your memberships unchanged", "Lower the project's minimum score", "Mark the project approved"}, 1},
 }
 
-var Identify = microsoftIdentity
+var Identify = func(code, verifier, redirect string) (email, name string, err error) {
+	if strings.TrimSpace(os.Getenv("MICROSOFT_CLIENT_ID")) == "" {
+		return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
+	}
+	return "", "", fail(503, "microsoft_not_configured", "Microsoft sign-in is not configured on this server.")
+}
 
 func nowISO() string { return time.Now().UTC().Format("2006-01-02T15:04:05Z") }
 
@@ -1207,7 +1212,14 @@ func confirmInPerson(tx *sql.Tx, admin map[string]any, userID string) (map[strin
 	return map[string]any{"role": user["role"], "application": app}, nil
 }
 
-func mentorReply(text string) string {
+func mentorReply(text string, project map[string]any, history []map[string]any) string {
+	if reply, ok := mentorAI(text, project, history); ok {
+		return reply
+	}
+	return mentorScript(text)
+}
+
+func mentorScript(text string) string {
 	folded := strings.ToLower(text)
 	switch {
 	case strings.Contains(folded, "date") || strings.Contains(folded, "string") || strings.Contains(folded, "sort"):
@@ -1231,8 +1243,19 @@ func postMentor(tx *sql.Tx, user map[string]any, projectID, text string) (string
 	if text == "" || len(text) > 500 {
 		return "", "", fail(400, "invalid_body", "Ask a question of 1 to 500 characters.")
 	}
+	project, err := one(tx, `SELECT * FROM projects WHERE id = ?`, projectID)
+	if err != nil {
+		return "", "", err
+	}
+	history, err := many(tx, `SELECT role, body FROM mentor_messages WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 8`, projectID, str(user, "id"))
+	if err != nil {
+		return "", "", err
+	}
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
 	moment := nowISO()
-	reply := mentorReply(text)
+	reply := mentorReply(text, project, history)
 	studentID, replyID := newID(), newID()
 	if _, err := tx.Exec(`INSERT INTO mentor_messages (id, project_id, user_id, role, body, created_at) VALUES (?, ?, ?, 'student', ?, ?)`, studentID, projectID, str(user, "id"), text, moment); err != nil {
 		return "", "", err
