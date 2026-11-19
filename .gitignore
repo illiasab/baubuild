@@ -1,5 +1,7 @@
 __pycache__/
-data/
+# Server runtime store only (BAU_ROOT/data). Unanchored "data/" also hid app source folders.
+/data/
+/server/go/data/
 *.pyc
 .DS_Store
 ~$*

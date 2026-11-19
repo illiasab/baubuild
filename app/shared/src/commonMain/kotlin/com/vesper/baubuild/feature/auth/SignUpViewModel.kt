@@ -53,7 +53,8 @@ data class SignUpUiState(
 
 /**
  * Sign Up: full name, BAU email (validated offline with [AccountPolicy] before any request), password + confirm,
- * terms. "Create Account" registers; the server emails a 6-digit code and the flow moves to Verify Email.
+ * terms. "Create Account" registers and signs in directly (the repository stores the session, so the shell switches).
+ * A legacy server that answers 202 verification required still moves the flow to Verify Email.
  */
 class SignUpViewModel(
     private val repository: AuthRepository,
@@ -89,6 +90,7 @@ class SignUpViewModel(
             val email = s.email.trim()
             try {
                 when (val result = repository.register(s.name.trim(), email, s.password)) {
+                    is AuthOutcome.SignedIn -> _state.update { it.copy(submitting = false) }
                     is AuthOutcome.VerificationRequired -> {
                         _state.update { it.copy(submitting = false) }
                         navigator.openVerifyEmail(result.email.ifBlank { email }, result.resendAfterSeconds)

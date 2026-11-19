@@ -87,14 +87,26 @@ class SignUpViewModelTest : ViewModelTest() {
     }
 
     @Test
-    fun successOpensVerifyEmail() = test {
+    fun successSignsInDirectly() = test {
         val vm = vm()
         vm.fillValid()
         vm.submit()
         runCurrent()
         assertFalse(vm.state.value.submitting)
-        assertEquals<List<Pair<String, Long?>>>(listOf("sam.carter@stu.bau.edu" to FakeAuthRepository.RESEND_AFTER), nav.verifications)
+        assertNull(vm.state.value.error)
+        assertTrue(nav.verifications.isEmpty())
         assertEquals(listOf("register:sam.carter@stu.bau.edu"), repo.calls)
+    }
+
+    @Test
+    fun legacyVerificationRequiredOpensVerifyEmail() = test {
+        val vm = vm()
+        vm.fillValid()
+        repo.nextRegister = AuthOutcome.VerificationRequired("sam.carter@stu.bau.edu", 30)
+        vm.submit()
+        runCurrent()
+        assertFalse(vm.state.value.submitting)
+        assertEquals<List<Pair<String, Long?>>>(listOf("sam.carter@stu.bau.edu" to 30L), nav.verifications)
     }
 
     @Test

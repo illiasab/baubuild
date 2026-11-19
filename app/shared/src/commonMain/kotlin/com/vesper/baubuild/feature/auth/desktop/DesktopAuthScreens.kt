@@ -22,6 +22,7 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
@@ -44,8 +45,7 @@ import com.vesper.baubuild.feature.auth.CODE_LENGTH
 import com.vesper.baubuild.feature.auth.DomainCheck
 import com.vesper.baubuild.feature.auth.DomainCheckLine
 import com.vesper.baubuild.feature.auth.EmailKeyboard
-import com.vesper.baubuild.feature.auth.ForgotPasswordStep
-import com.vesper.baubuild.feature.auth.ForgotPasswordUiState
+import com.vesper.baubuild.feature.auth.FORGOT_PASSWORD_MESSAGE
 import com.vesper.baubuild.feature.auth.LoginUiState
 import com.vesper.baubuild.feature.auth.MSG_BAU_ONLY
 import com.vesper.baubuild.feature.auth.NOT_ALLOWED_BODY
@@ -53,6 +53,8 @@ import com.vesper.baubuild.feature.auth.NameKeyboard
 import com.vesper.baubuild.feature.auth.PasswordKeyboard
 import com.vesper.baubuild.feature.auth.PasswordRulesLine
 import com.vesper.baubuild.feature.auth.ResendCodeLine
+import com.vesper.baubuild.feature.auth.SUPPORT_EMAIL
+import com.vesper.baubuild.feature.auth.SUPPORT_MAILTO
 import com.vesper.baubuild.feature.auth.SignUpUiState
 import com.vesper.baubuild.feature.auth.UNKNOWN_ACCOUNT_LABEL
 import com.vesper.baubuild.feature.auth.VerificationCodeField
@@ -389,127 +391,18 @@ internal fun DesktopVerifyEmail(
 
 @Composable
 internal fun DesktopForgotPassword(
-    state: ForgotPasswordUiState,
-    onEmailChange: (String) -> Unit,
-    onSendCode: () -> Unit,
-    onCodeChange: (String) -> Unit,
-    onNewPasswordChange: (String) -> Unit,
-    onConfirmPasswordChange: (String) -> Unit,
-    onTogglePasswordVisible: () -> Unit,
-    onReset: () -> Unit,
-    onResend: () -> Unit,
-    onChangeEmail: () -> Unit,
     onLogIn: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val focus = LocalFocusManager.current
-    when (state.step) {
-        ForgotPasswordStep.EnterEmail -> {
-            val emailFocus = remember { FocusRequester() }
-            AutoFocus(emailFocus)
-            val send = {
-                if (state.canSendCode) {
-                    focus.clearFocus()
-                    onSendCode()
-                }
-            }
-            DesktopFormCard(
-                title = "Forgot password?",
-                subtitle = "Enter your BAU email and we’ll send you a code to reset it.",
-                onBack = onBack,
-            ) {
-                DesktopLabelledField(
-                    label = "BAU email",
-                    value = state.email,
-                    onValueChange = onEmailChange,
-                    placeholder = "name@stu.bau.edu",
-                    imeAction = ImeAction.Send,
-                    onEnter = send,
-                    contentType = ContentType.Username + ContentType.EmailAddress,
-                    enabled = !state.submitting,
-                    modifier = Modifier.focusRequester(emailFocus),
-                    below = { if (state.domainCheck is DomainCheck.External) DomainCheckLine(state.domainCheck) },
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    state.error?.let { AuthInlineError(it) }
-                    DesktopPrimaryButton("Send code", onClick = send, enabled = state.canSendCode, loading = state.submitting, loadingDescription = "Sending the code")
-                }
-                CenteredLink("Log In", onLogIn, lead = "Remembered it?")
-            }
-        }
-        ForgotPasswordStep.Reset -> {
-            val codeFocus = remember { FocusRequester() }
-            val passwordFocus = remember { FocusRequester() }
-            val confirmFocus = remember { FocusRequester() }
-            AutoFocus(codeFocus)
-            val reset = {
-                if (state.canReset) {
-                    focus.clearFocus()
-                    onReset()
-                }
-            }
-            DesktopFormCard(
-                title = "Reset password",
-                subtitle = "Enter the code from your BAU inbox and choose a new password.",
-                onBack = onChangeEmail,
-            ) {
-                state.notice?.let { AuthNotice(it) }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    DesktopFieldLabel("6-digit code")
-                    VerificationCodeField(
-                        code = state.code,
-                        onCodeChange = { raw ->
-                            onCodeChange(raw)
-                            if (normalizeCode(raw).length == CODE_LENGTH) passwordFocus.tryFocus()
-                        },
-                        enabled = !state.submitting,
-                        focusRequester = codeFocus,
-                        onDone = { passwordFocus.tryFocus() },
-                        cellHeight = 52.dp,
-                        cellShape = RoundedCornerShape(8.dp),
-                    )
-                }
-                DesktopLabelledField(
-                    label = "New password",
-                    value = state.newPassword,
-                    onValueChange = onNewPasswordChange,
-                    placeholder = "At least 8 characters",
-                    imeAction = ImeAction.Next,
-                    onEnter = { confirmFocus.tryFocus() },
-                    contentType = ContentType.NewPassword,
-                    enabled = !state.submitting,
-                    keyboard = PasswordKeyboard,
-                    modifier = Modifier.focusRequester(passwordFocus),
-                    password = true,
-                    passwordVisible = state.passwordVisible,
-                    onTogglePasswordVisible = onTogglePasswordVisible,
-                    below = { PasswordRulesLine(state.passwordCheck) },
-                )
-                DesktopLabelledField(
-                    label = "Confirm new password",
-                    value = state.confirmPassword,
-                    onValueChange = onConfirmPasswordChange,
-                    placeholder = "Type it again",
-                    imeAction = ImeAction.Done,
-                    onEnter = reset,
-                    contentType = ContentType.NewPassword,
-                    enabled = !state.submitting,
-                    keyboard = PasswordKeyboard,
-                    isError = state.confirmMismatch,
-                    modifier = Modifier.focusRequester(confirmFocus),
-                    password = true,
-                    passwordVisible = state.passwordVisible,
-                    onTogglePasswordVisible = onTogglePasswordVisible,
-                    below = { if (state.confirmMismatch) AuthFieldHint("Passwords don’t match") },
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    state.error?.let { AuthInlineError(it) }
-                    DesktopPrimaryButton("Reset Password", onClick = reset, enabled = state.canReset, loading = state.submitting, loadingDescription = "Resetting your password")
-                }
-                DesktopResendLine(state.resendInSeconds, state.canResend, state.resending, onResend)
-                CenteredLink("Change it", onChangeEmail, lead = "Wrong email?")
-            }
-        }
+    val uriHandler = LocalUriHandler.current
+    DesktopFormCard(
+        title = "Forgot password?",
+        subtitle = "Password reset by email isn’t available.",
+        onBack = onBack,
+    ) {
+        AuthNotice(FORGOT_PASSWORD_MESSAGE)
+        CenteredLink(SUPPORT_EMAIL, { runCatching { uriHandler.openUri(SUPPORT_MAILTO) } }, lead = "Email")
+        CenteredLink("Back to Log In", onLogIn)
     }
 }
 

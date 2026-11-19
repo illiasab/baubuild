@@ -38,8 +38,8 @@ data class AuthUiState(
 }
 
 /**
- * Navigation of the signed-out flow (Welcome → Log In / Sign Up → Verify Email, Forgot Password) and the Not Allowed
- * screen. The forms ([SignUpViewModel], [LoginViewModel], [VerifyEmailViewModel], [ForgotPasswordViewModel]) talk to
+ * Navigation of the signed-out flow (Welcome → Log In / Sign Up, Forgot Password; legacy Verify Email) and the Not Allowed
+ * screen. The forms ([SignUpViewModel], [LoginViewModel], [VerifyEmailViewModel]) talk to
  * the repository themselves and report back through [AuthNavigator]. A session that the app ended because the
  * server refused the domain ([SignOutReason.DomainNotAllowed], e.g. on token refresh) opens Not Allowed too.
  *

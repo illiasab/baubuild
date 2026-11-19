@@ -44,17 +44,21 @@ sealed interface ResetPasswordResult
 sealed interface CodeRequestResult
 
 sealed interface AuthOutcome {
-    /** 200 tokens. The repository has already stored the session (`SessionStore.signedIn`). */
-    data class SignedIn(val session: AuthSession) : AuthOutcome, VerifyEmailResult, LoginResult, ResetPasswordResult
+    /** 200 tokens (register and log-in). The repository has already stored the session (`SessionStore.signedIn`). */
+    data class SignedIn(val session: AuthSession) :
+        AuthOutcome, RegisterResult, VerifyEmailResult, LoginResult, ResetPasswordResult
 
     /**
-     * Register → `202 {verification_required, email, resend_after_s}`; login → `403 email_not_verified` (the server
-     * re-sends a code). The app shows Verify Email for [email]; "Resend code" unlocks after [resendAfterSeconds].
+     * Legacy server only (the current one sends no email): register → `202 {verification_required, email,
+     * resend_after_s}`; login → `403 email_not_verified`. The app shows Verify Email for [email].
      */
     data class VerificationRequired(val email: String, val resendAfterSeconds: Long?) : AuthOutcome, RegisterResult, LoginResult
 
     /** `202`: a code was sent (or, for forgot-password, would have been if the account exists — no enumeration). */
     data class CodeSent(val resendAfterSeconds: Long?) : AuthOutcome, CodeRequestResult
+
+    /** `501 not_available`: email codes / password reset by email are off (no SMTP); ask BAU BUILD support. */
+    data object NotAvailable : AuthOutcome, CodeRequestResult, ResetPasswordResult
 
     /** `403 domain_not_allowed`: only `@stu.bau.edu` / `@bau.edu` may register and use the app. */
     data object DomainNotAllowed : AuthOutcome, RegisterResult, LoginResult
@@ -83,15 +87,14 @@ sealed interface AuthOutcome {
 }
 
 /**
- * Backend contract for accounts (plain email + password, verified by a 6-digit email code; see
- * docs/BACKEND_REQUIREMENTS.md §1). Every body carries `device {platform, app_version}` where noted.
+ * Backend contract for accounts (plain email + password, stored in Postgres; no email is ever sent). Every body
+ * carries `device {platform, app_version}` where noted.
  *
- * - `POST /v1/auth/register {name, email, password, device}` → 202 verification required.
- * - `POST /v1/auth/verify-email {email, code, device}` → 200 tokens.
- * - `POST /v1/auth/resend-code {email, purpose}` → 202 `{resend_after_s}`.
+ * - `POST /v1/auth/register {name, email, password, device}` → 200 tokens (signs in directly; a legacy server
+ *   answered 202 verification required, still handled).
  * - `POST /v1/auth/login {email, password, device}` → 200 tokens.
- * - `POST /v1/auth/password/forgot {email}` → always 202.
- * - `POST /v1/auth/password/reset {email, code, new_password, device}` → 200 tokens (signs in).
+ * - `POST /v1/auth/verify-email`, `resend-code`, `password/forgot`, `password/reset` → `501 not_available`
+ *   (legacy servers: the 6-digit email code flow). Forgotten passwords are reset by BAU BUILD support.
  * - `POST /v1/auth/refresh` rotates the pair (handled by the HTTP client, core/network); `GET /v1/me` (Bearer);
  *   `POST /v1/auth/logout` (Bearer).
  *
@@ -107,7 +110,7 @@ interface AuthRepository {
 
     suspend fun login(email: String, password: String): LoginResult
 
-    /** Always [AuthOutcome.CodeSent] unless rate-limited (no account enumeration). */
+    /** [AuthOutcome.NotAvailable] on the current server; legacy: [AuthOutcome.CodeSent] unless rate-limited. */
     suspend fun forgotPassword(email: String): CodeRequestResult
 
     suspend fun resetPassword(email: String, code: String, newPassword: String): ResetPasswordResult

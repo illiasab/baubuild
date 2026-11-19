@@ -66,19 +66,24 @@ Design reference: https://baybuild.vercel.app/ (tab "iOS app").
 
 ## Sign-in
 
-Plain **email + password** accounts with **email-code verification** (contract: `docs/BACKEND_REQUIREMENTS.md` §1).
+Plain **email + password** accounts recorded in Postgres at registration — **no email is ever sent** (no SMTP, no
+codes). `POST /v1/auth/register` returns tokens like log-in, so **Sign Up signs in directly**. `verify-email`,
+`resend-code`, `password/forgot` and `password/reset` answer `501 not_available`; a forgotten password is reset by
+BAU BUILD support (`support@baubuild.vesperconnect.org`).
 Only `@stu.bau.edu` (students) and `@bau.edu` (staff) may register and use the app; the server enforces it on register,
 login and every token refresh, and `AccountPolicy` mirrors it offline so no request is sent for another domain.
 
 - `AuthRepository` (`data/repository`): `register`, `verifyEmail`, `resendCode(purpose)`, `login`, `forgotPassword`,
   `resetPassword`, `me`, `signOut`, each returning a typed sealed result (`AuthOutcome.*`: `SignedIn`,
-  `VerificationRequired`, `EmailTaken`, `InvalidCredentials`, `InvalidCode`, `CodeExpired`, `TooManyAttempts`, …).
+  `VerificationRequired` (legacy server only), `NotAvailable` (501), `EmailTaken`, `InvalidCredentials`,
+  `TooManyAttempts`, …).
   `HttpAuthRepository` stores the session (`SessionStore.signedIn`) whenever tokens come back.
-- `feature/auth`: `AuthRoot` hosts Welcome → Log In / Sign Up → **Verify Email** (6-digit code, auto-submit,
-  resend countdown) and Forgot Password (email → code + new password → signed in), plus **Not Allowed** for a server
+- `feature/auth`: `AuthRoot` hosts Welcome → Log In / Sign Up (→ signed in) and Forgot Password (a card: "Ask BAU
+  BUILD support" with a mailto link and Back to Log In), plus **Not Allowed** for a server
   `domain_not_allowed` (also after a refresh refused the domain: `SignOutReason.DomainNotAllowed`). `AuthViewModel`
   owns navigation; each form has its own ViewModel and reports back through `AuthNavigator`. Mobile and desktop
-  (`feature/auth/desktop`) render the same ViewModels.
+  (`feature/auth/desktop`) render the same ViewModels. Verify Email (6-digit code) is kept only for a legacy server
+  that answers register with `202 verification_required`. The web portal (`static/js/auth.js`) behaves the same.
 - Fields: IME Next/Done chain the fields and Done submits; autofill content types (name, username/email,
   new password, password, one-time code); secure entry with Show/Hide; `AuthSubScreen` uses `imePadding` + scroll so
   the keyboard never hides the primary button.

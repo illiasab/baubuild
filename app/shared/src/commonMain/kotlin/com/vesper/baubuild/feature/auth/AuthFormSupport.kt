@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
  * What the form ViewModels ask of the auth flow (implemented by [AuthViewModel], which owns the in-auth navigation).
  */
 interface AuthNavigator {
-    /** Register succeeded or log-in found an unverified account: show Verify Email for [email]. */
+    /** Legacy server only: register needs a code, or log-in found an unverified account. Show Verify Email. */
     fun openVerifyEmail(email: String, resendAfterSeconds: Long?)
 
     /** The server answered `domain_not_allowed`: show the Not Allowed explanation for [email]. */
@@ -34,6 +34,7 @@ internal const val MSG_WEAK_PASSWORD = "Choose a stronger password: at least 8 c
 internal const val MSG_INVALID_CODE = "That code isn’t right. Check the email and try again."
 internal const val MSG_CODE_EXPIRED = "This code has expired. Tap “Resend code” to get a new one."
 internal const val MSG_CODE_LOCKED = "Too many tries with this code. Tap “Resend code” to get a new one."
+internal const val MSG_CODES_NOT_AVAILABLE = "Email codes aren’t available. Ask BAU BUILD support."
 
 /** "Too many attempts. Try again in N min." (rounded up, at least 1 min). */
 internal fun tooManyAttemptsMessage(retryAfterSeconds: Long?): String =

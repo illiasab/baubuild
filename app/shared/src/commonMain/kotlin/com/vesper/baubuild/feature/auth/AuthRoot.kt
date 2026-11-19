@@ -40,14 +40,14 @@ private class AuthViewModels(
     val signUp: SignUpViewModel,
     val login: LoginViewModel,
     val verify: VerifyEmailViewModel,
-    val forgot: ForgotPasswordViewModel,
 )
 
 /**
  * Entry point for this feature. Hosted by the Compose tab shell and by the native iOS TabView.
- * In-auth navigation: Welcome → Log In / Sign Up → Verify Email, and Forgot Password (Log In ⇄ Sign Up links pop
- * back to an existing entry instead of stacking), with system back (Android back, iOS edge-swipe, desktop Esc)
- * popping. Successful verify / log-in / reset stores the session and the shell leaves this root.
+ * In-auth navigation: Welcome → Log In / Sign Up, and Forgot Password (a "ask support" card — no email is sent).
+ * Log In ⇄ Sign Up links pop back to an existing entry instead of stacking; system back (Android back, iOS
+ * edge-swipe, desktop Esc) pops. Sign Up and Log In store the session and the shell leaves this root. Verify Email
+ * is only reached against a legacy server that still answers register with 202 / login with email_not_verified.
  *
  * Desktop ([usesPortalLayout]) renders the same flow in the website layout ([DesktopAuthFrame]: dark brand panel +
  * form card); only the card changes between screens. Mobile renders the full-screen phone layouts.
@@ -65,7 +65,6 @@ fun AuthRoot(modifier: Modifier = Modifier) {
         signUp = viewModel { SignUpViewModel(AppGraph.current.authRepository, AppGraph.current.policy, vm) },
         login = viewModel { LoginViewModel(AppGraph.current.authRepository, AppGraph.current.policy, vm) },
         verify = viewModel { VerifyEmailViewModel(AppGraph.current.authRepository) },
-        forgot = viewModel { ForgotPasswordViewModel(AppGraph.current.authRepository, AppGraph.current.policy) },
     )
     val state by vm.state.collectAsStateWithLifecycle()
 
@@ -89,9 +88,9 @@ fun AuthRoot(modifier: Modifier = Modifier) {
     }
 }
 
-/** Back inside Forgot Password goes from step 2 to step 1 first; everything else pops the stack. */
+/** System / header back pops the auth stack. */
+@Suppress("UNUSED_PARAMETER")
 private fun back(vms: AuthViewModels, state: AuthUiState) {
-    if (state.screen == AuthScreen.ForgotPassword && vms.forgot.back()) return
     vms.nav.back()
 }
 
@@ -193,33 +192,9 @@ private fun AuthContentHost(
                         )
                     }
                 }
-                AuthScreen.ForgotPassword -> {
-                    val forgot by vms.forgot.state.collectAsStateWithLifecycle()
-                    val f = vms.forgot
-                    val onChangeEmail = { f.back(); Unit }
-                    if (desktop) {
-                        DesktopForgotPassword(
-                            forgot, f::onEmailChange, f::sendCode, f::onCodeChange, f::onNewPasswordChange,
-                            f::onConfirmPasswordChange, f::onTogglePasswordVisible, f::resetPassword, f::resend,
-                            onChangeEmail, onLogIn, onBack,
-                        )
-                    } else {
-                        ForgotPasswordScreen(
-                            state = forgot,
-                            onEmailChange = f::onEmailChange,
-                            onSendCode = f::sendCode,
-                            onCodeChange = f::onCodeChange,
-                            onNewPasswordChange = f::onNewPasswordChange,
-                            onConfirmPasswordChange = f::onConfirmPasswordChange,
-                            onTogglePasswordVisible = f::onTogglePasswordVisible,
-                            onReset = f::resetPassword,
-                            onResend = f::resend,
-                            onChangeEmail = onChangeEmail,
-                            onLogIn = onLogIn,
-                            onBack = onBack,
-                        )
-                    }
-                }
+                AuthScreen.ForgotPassword ->
+                    if (desktop) DesktopForgotPassword(onLogIn, onBack)
+                    else ForgotPasswordScreen(onLogIn = onLogIn, onBack = onBack)
             }
         }
     }

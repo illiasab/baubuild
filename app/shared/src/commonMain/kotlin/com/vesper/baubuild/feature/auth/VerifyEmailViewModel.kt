@@ -92,6 +92,7 @@ class VerifyEmailViewModel(private val repository: AuthRepository) : ViewModel()
                         _state.update { it.copy(resending = false, error = tooManyAttemptsMessage(result.retryAfterSeconds)) }
                         countdown.start(result.retryAfterSeconds ?: DEFAULT_RESEND_AFTER_SECONDS)
                     }
+                    AuthOutcome.NotAvailable -> _state.update { it.copy(resending = false, error = MSG_CODES_NOT_AVAILABLE) }
                 }
             } catch (e: CancellationException) {
                 throw e

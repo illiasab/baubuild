@@ -1,5 +1,6 @@
-// Auth screens: Log In, Sign Up, Verify Email, Forgot / Reset Password, Not Allowed.
-// Email + password, BAU domains only (@stu.bau.edu students, @bau.edu staff), 6-digit email codes.
+// Auth screens: Log In, Sign Up, Forgot Password (ask support), Not Allowed.
+// Email + password, BAU domains only (@stu.bau.edu students, @bau.edu staff). No email is sent:
+// registration signs in directly. Verify Email stays only for a legacy server that answers 202.
 import { api, DEVICE } from './api.js';
 import { session, accountKind } from './session.js';
 import { navigate } from './router.js';
@@ -7,6 +8,7 @@ import { h, svg, icons, busy } from './ui.js';
 
 const PASSWORD_RULE = 'At least 8 characters, with a letter and a number.';
 const DOMAIN_RULE = 'Only @stu.bau.edu and @bau.edu emails can sign up.';
+const SUPPORT_EMAIL = 'support@baubuild.vesperconnect.org';
 
 // Remember the latest resend cooldown per email across screens (verify / reset).
 const cooldowns = new Map();
@@ -241,6 +243,8 @@ export function renderSignup(root, { query = {} } = {}) {
     if (!terms.checked) { showError(err, 'Please accept the Terms and Privacy Policy to continue.'); terms.focus(); return; }
     try {
       const res = await api('/v1/auth/register', { method: 'POST', auth: false, body: { name: n, email: e, password: p, device: DEVICE } });
+      if (res?.access_token) { signedIn(res); return; }
+      // Legacy server: 202 verification_required → code screen.
       setCooldown(e, res?.resend_after_s || 60);
       navigate(`#/verify?email=${encodeURIComponent(res?.email || e)}`);
     } catch (error) {
@@ -384,83 +388,16 @@ export function renderVerify(root, { query = {} } = {}) {
   return () => resend.stop();
 }
 
-// ---------- Forgot / Reset Password ----------
-export function renderForgot(root, { query = {} } = {}) {
-  let stepEmail = normalizeEmail(query.email);
-  let cleanup = null;
-
-  const stepOne = () => {
-    const email = field({ label: 'BAU email', type: 'email', name: 'email', autocomplete: 'username', placeholder: 'you@stu.bau.edu', value: stepEmail, autofocus: true });
-    const err = formError();
-    const btn = submitButton('Send Code');
-    const form = h('form', { class: 'auth-form', novalidate: true }, err, email.wrap, btn,
-      h('p', { class: 'auth-switch' }, 'Remembered it? ', h('a', { class: 'link link-strong', href: '#/login' }, 'Log In')));
-    onSubmit(form, btn, async () => {
-      showError(err, '');
-      const e = normalizeEmail(email.input.value);
-      if (!e || !e.includes('@')) { setHint(email, 'Enter your BAU email.', 'error'); email.input.focus(); return; }
-      if (!accountKind(e)) { setHint(email, DOMAIN_RULE, 'error'); email.input.focus(); return; }
-      setHint(email, '');
-      try {
-        const res = await api('/v1/auth/password/forgot', { method: 'POST', auth: false, body: { email: e } });
-        setCooldown(e, res?.resend_after_s || 60);
-        stepEmail = e;
-        stepTwo();
-      } catch (error) {
-        showError(err, authMessage(error, 'forgot'));
-      }
-    });
-    root.replaceChildren(layout('Reset your password', 'Enter your BAU email and we’ll send you a 6-digit code.', form));
-  };
-
-  const stepTwo = () => {
-    const err = formError();
-    const status = h('p', { class: 'form-ok', role: 'status', hidden: true });
-    const code = codeBoxes(() => pw.input.focus());
-    const pw = passwordField({ label: 'New password', name: 'new-password', autocomplete: 'new-password', hint: PASSWORD_RULE });
-    const confirm = passwordField({ label: 'Confirm new password', name: 'confirm', autocomplete: 'new-password' });
-    pw.input.addEventListener('input', () => {
-      const v = pw.input.value;
-      setHint(pw, v && passwordOk(v) ? 'Strong enough.' : PASSWORD_RULE, v ? (passwordOk(v) ? 'ok' : 'warn') : null);
-    });
-    const btn = submitButton('Reset Password');
-    const resend = resendControl(stepEmail, 'reset', (m) => showError(err, m), () => {
-      showError(err, '');
-      status.textContent = `We sent a new code to ${stepEmail}.`;
-      status.hidden = false;
-      code.reset();
-    });
-    cleanup = () => resend.stop();
-    const form = h('form', { class: 'auth-form', novalidate: true }, err, status,
-      h('div', { class: 'field' }, h('span', { class: 'label' }, 'Code from the email'), code.el), resend.el,
-      pw.wrap, confirm.wrap, btn,
-      h('p', { class: 'auth-switch' }, 'Wrong email? ', h('button', { type: 'button', class: 'btn btn-link link-strong', onClick: () => { resend.stop(); stepOne(); } }, 'Change it')));
-    onSubmit(form, btn, async () => {
-      showError(err, '');
-      status.hidden = true;
-      const c = code.value();
-      const p = pw.input.value;
-      if (c.length !== 6) { code.setInvalid(true); showError(err, 'Enter the 6-digit code from the email.'); code.focus(); return; }
-      if (!passwordOk(p)) { setHint(pw, PASSWORD_RULE, 'error'); pw.input.focus(); return; }
-      if (confirm.input.value !== p) { setHint(confirm, 'Passwords don’t match.', 'error'); confirm.input.focus(); return; }
-      setHint(confirm, '');
-      try {
-        const tokens = await api('/v1/auth/password/reset', { method: 'POST', auth: false, body: { email: stepEmail, code: c, new_password: p, device: DEVICE } });
-        resend.stop();
-        signedIn(tokens);
-      } catch (error) {
-        if (error.code === 'weak_password') { setHint(pw, authMessage(error, 'reset'), 'error'); pw.input.focus(); return; }
-        if (['invalid_code', 'code_expired', 'too_many_attempts'].includes(error.code)) { code.setInvalid(true); code.reset(); }
-        showError(err, authMessage(error, 'reset'));
-      }
-    });
-    code.el.addEventListener('input', () => code.setInvalid(false));
-    root.replaceChildren(layout('Enter the code', h('span', {}, 'If ', h('strong', {}, stepEmail), ' has an account, we sent it a 6-digit code. Choose a new password below.'), form));
-    requestAnimationFrame(() => code.focus());
-  };
-
-  stepOne();
-  return () => cleanup?.();
+// ---------- Forgot Password ----------
+// No email is sent, so support resets passwords by hand.
+export function renderForgot(root) {
+  const body = h('div', { class: 'auth-form' },
+    h('div', { class: 'notice notice-info' },
+      h('p', {}, 'Forgot your password? Ask BAU BUILD support to reset it.')),
+    h('a', { class: 'btn btn-primary btn-block btn-lg', href: `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Password reset')}` }, `Email ${SUPPORT_EMAIL}`),
+    h('p', { class: 'auth-switch' }, h('a', { class: 'link link-strong', href: '#/login' }, 'Back to log in')));
+  root.replaceChildren(layout('Reset your password', null, body));
+  return null;
 }
 
 // ---------- Not Allowed ----------
