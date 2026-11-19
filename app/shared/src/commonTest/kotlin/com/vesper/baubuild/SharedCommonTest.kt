@@ -29,3 +29,21 @@ class AccountPolicyTest {
         assertEquals(AccountKind.External, policy.classify("x@stu.bau.edu.attacker.com"))
     }
 }
+
+class SessionStoreResilienceTest {
+    private class BrokenTokenStore : com.vesper.baubuild.core.session.TokenStore {
+        override suspend fun read(): String? = error("Keychain read failed: -34018")
+        override suspend fun write(token: String) = error("Keychain write failed: -34018")
+        override suspend fun clear() = error("Keychain delete failed: -34018")
+    }
+
+    @Test fun brokenSecureStorageNeverCrashes() = kotlinx.coroutines.test.runTest {
+        val store = com.vesper.baubuild.core.session.SessionStore(BrokenTokenStore())
+        store.restore { error("should not be called") }
+        assertEquals(com.vesper.baubuild.core.session.SessionState.SignedOut, store.state.value)
+        store.signedIn("t", com.vesper.baubuild.data.fake.FakeData.sam)
+        assertEquals("t", store.token)
+        store.signOut()
+        assertEquals(com.vesper.baubuild.core.session.SessionState.SignedOut, store.state.value)
+    }
+}

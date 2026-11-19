@@ -43,12 +43,17 @@ sealed interface ProjectsRoute {
         override val key: String get() = "inquiry"
     }
 
+    data object Notifications : ProjectsRoute {
+        override val key: String get() = "notifications"
+    }
+
     companion object {
         fun decode(key: String): ProjectsRoute? {
             val arg = key.substringAfter('/', missingDelimiterValue = "")
             return when (key.substringBefore('/')) {
                 "classes" -> MyClasses
                 "inquiry" -> RequestProject
+                "notifications" -> Notifications
                 "project" -> arg.ifEmpty { null }?.let(::Detail)
                 "class" -> arg.substringBefore('|').ifEmpty { null }
                     ?.let { ProjectList(ProjectListSource.ForClass(it, arg.substringAfter('|', ""))) }
@@ -73,6 +78,9 @@ class ProjectsBackStack internal constructor(private val entries: SnapshotStateL
     }
 
     fun pop(): Boolean = entries.removeLastOrNull() != null
+
+    /** Back to Projects home (the tab's root). */
+    fun popToRoot() = entries.clear()
 
     companion object {
         fun of(vararg routes: ProjectsRoute) = ProjectsBackStack(mutableStateListOf(*routes))

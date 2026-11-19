@@ -43,8 +43,9 @@ fun filterProjects(projects: List<Project>, query: String): List<Project> {
 class SearchViewModel(
     private val repository: ProjectRepository,
     debounceMillis: Long = DEBOUNCE_MILLIS,
+    /** Shared with the shell's tab-bar search field ([SearchQuery.text]); tests pass their own. */
+    private val query: MutableStateFlow<String> = MutableStateFlow(""),
 ) : ViewModel() {
-    private val query = MutableStateFlow("")
     private val projects = MutableStateFlow<LoadState<List<Project>>>(LoadState.Loading)
     private val recent = MutableStateFlow<List<String>>(emptyList())
     private val selected = MutableStateFlow<Project?>(null)

@@ -92,7 +92,7 @@ internal fun NotAllowedScreen(
             BauCard(Modifier.fillMaxWidth()) {
                 Text("SIGNED IN AS", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em,
                     color = BauColors.TextTertiary)
-                Text(email, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink,
+                Text(email.ifBlank { UNKNOWN_ACCOUNT_LABEL }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink,
                     modifier = Modifier.padding(top = 2.dp, bottom = BauSpacing.md))
                 DomainRule("Students", "@stu.bau.edu")
                 DomainRule("Staff", "@bau.edu")
@@ -115,3 +115,6 @@ private fun DomainRule(who: String, domain: String) {
         fontSize = 15.sp, lineHeight = 22.sp, color = BauColors.TextSecondary,
     )
 }
+
+/** The backend doesn't echo a refused address; shown when no email was typed either. */
+internal const val UNKNOWN_ACCOUNT_LABEL = "A Microsoft account outside BAU"

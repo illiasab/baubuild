@@ -36,6 +36,15 @@ private val BauScheme = lightColorScheme(
 )
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun BauTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = BauScheme, typography = BauTypography, content = content)
+    MaterialTheme(colorScheme = BauScheme, typography = BauTypography) {
+        // No gray ripples anywhere: Material components (buttons, cards, switches…) get no ripple, and every
+        // clickable uses the press-scale feedback instead. Text links use no indication at all (BauTextLink).
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalRippleConfiguration provides null,
+            androidx.compose.foundation.LocalIndication provides PressScaleIndication,
+            content = content,
+        )
+    }
 }

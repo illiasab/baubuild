@@ -143,7 +143,7 @@ class ProjectDetailViewModelTest : MainDispatcherTest() {
 
     @Test fun belowMinScoreCannotJoin() = test {
         val repo = TestProjectRepository()
-        val vm = ProjectDetailViewModel(FakeData.courseSearch.id, repo, signedIn()) // Sam has 180, needs 300
+        val vm = ProjectDetailViewModel(FakeData.courseSearch.id, repo, signedIn(FakeData.sam.copy(score = 180))) // 180, needs 300
         advanceUntilIdle()
         assertEquals(JoinEligibility.BelowMinScore(300, 180), vm.state.value.eligibility)
         assertFalse(vm.state.value.canJoin)

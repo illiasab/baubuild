@@ -59,7 +59,7 @@ class MicrosoftSignInTest {
         assertEquals(Pkce.fromVerifier("v".repeat(43)).challenge, url.parameters["code_challenge"])
         assertEquals("select_account", url.parameters["prompt"])
         assertEquals("bau.edu", url.parameters["domain_hint"])
-        assertEquals("openid profile email", url.parameters["scope"])
+        assertEquals("openid profile email User.Read", url.parameters["scope"])
         assertEquals("http://127.0.0.1:5555/auth/callback", url.parameters["redirect_uri"])
     }
 

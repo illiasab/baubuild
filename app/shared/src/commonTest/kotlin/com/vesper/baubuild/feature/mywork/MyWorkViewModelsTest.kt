@@ -44,6 +44,8 @@ private class TestWorkRepository(
         return FakeData.workspace(projectId)
     }
 
+    override suspend fun updateTaskStatus(projectId: String, taskId: String, status: com.vesper.baubuild.core.model.TaskStatus): com.vesper.baubuild.core.model.ProjectTask = error("unused")
+
     override suspend fun reviews(): List<ReviewStatus> = emptyList()
 }
 

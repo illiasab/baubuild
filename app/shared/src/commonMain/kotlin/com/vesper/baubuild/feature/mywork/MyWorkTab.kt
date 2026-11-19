@@ -1,5 +1,10 @@
 package com.vesper.baubuild.feature.mywork
 
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import com.vesper.baubuild.designsystem.DebugLayout
+import androidx.compose.runtime.LaunchedEffect
+import com.vesper.baubuild.designsystem.tabBarContentPadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +39,10 @@ import com.vesper.baubuild.feature.mywork.components.GroupedRow
 import com.vesper.baubuild.feature.mywork.components.GroupedSection
 import com.vesper.baubuild.feature.mywork.components.ImInChip
 import com.vesper.baubuild.feature.mywork.components.WorkChip
+import com.vesper.baubuild.feature.code.CodeScreen
+import com.vesper.baubuild.feature.code.CodeSessionViewModel
+import com.vesper.baubuild.feature.mywork.task.TaskDetailScreen
+import com.vesper.baubuild.feature.mywork.task.TaskDetailViewModel
 import com.vesper.baubuild.feature.mywork.workspace.MentorAiScreen
 import com.vesper.baubuild.feature.mywork.workspace.WorkspaceScreen
 import com.vesper.baubuild.feature.mywork.workspace.WorkspaceViewModel
@@ -41,7 +50,7 @@ import com.vesper.baubuild.feature.mywork.workspace.WorkspaceViewModel
 /**
  * Entry point for this feature. Hosted by the Compose tab shell and by the native iOS TabView.
  *
- * Navigation: My Work list → project workspace → Mentor AI (stub). The back stack is saveable and system
+ * Navigation: My Work list → project workspace → task detail (→ code workspace) / Mentor AI (stub). The back stack is saveable and system
  * back (Android back, iOS edge-swipe, desktop Esc) pops it via [BackHandler].
  */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -69,6 +78,27 @@ fun MyWorkTabRoot(modifier: Modifier = Modifier) {
                             },
                             onBack = { backStack.pop() },
                             onOpenMentor = { backStack.push(MyWorkRoute.MentorAi(route.projectId)) },
+                            onOpenTask = { taskId -> backStack.push(MyWorkRoute.TaskDetail(route.projectId, taskId)) },
+                        )
+                        is MyWorkRoute.TaskDetail -> TaskDetailScreen(
+                            viewModel = viewModel(key = route.key) {
+                                TaskDetailViewModel(
+                                    AppGraph.current.workRepository, route.projectId, route.taskId,
+                                    github = AppGraph.current.gitHubRepository,
+                                )
+                            },
+                            onBack = { backStack.pop() },
+                            onAskMentor = { backStack.push(MyWorkRoute.MentorAi(route.projectId)) },
+                            onOpenCode = { backStack.push(MyWorkRoute.Code(route.projectId, route.taskId)) },
+                        )
+                        is MyWorkRoute.Code -> CodeScreen(
+                            viewModel = viewModel(key = route.key) {
+                                CodeSessionViewModel(
+                                    AppGraph.current.workRepository, AppGraph.current.gitHubRepository,
+                                    route.projectId, route.taskId,
+                                )
+                            },
+                            onBack = { backStack.pop() },
                         )
                         is MyWorkRoute.MentorAi -> MentorAiScreen(route.projectId, onBack = { backStack.pop() })
                     }
@@ -92,13 +122,16 @@ internal fun MyWorkListScreen(
             onRefresh = viewModel::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
+            val scroll = rememberScrollState()
+            if (DebugLayout.startScrolledToBottom) LaunchedEffect(scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .verticalScroll(scroll)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                     .padding(horizontal = BauSpacing.screen)
-                    .padding(top = BauSpacing.md, bottom = BauSpacing.xxl),
+                    .padding(top = BauSpacing.md)
+                    .tabBarContentPadding(),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 MyWorkHeader()

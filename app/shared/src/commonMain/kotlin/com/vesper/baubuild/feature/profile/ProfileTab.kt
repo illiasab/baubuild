@@ -1,7 +1,10 @@
 package com.vesper.baubuild.feature.profile
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role as SemanticsRole
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -36,21 +39,33 @@ import com.vesper.baubuild.core.model.ScoreTier
 import com.vesper.baubuild.core.model.User
 import com.vesper.baubuild.designsystem.*
 import com.vesper.baubuild.di.AppGraph
+import com.vesper.baubuild.feature.github.ConnectGitHubScreen
+import com.vesper.baubuild.feature.profile.edit.EditProfileScreen
 import com.vesper.baubuild.feature.profile.lead.BecomeLeadScreen
-import com.vesper.baubuild.feature.review.TabBarClearance
 import com.vesper.baubuild.feature.review.cardShadow
 
 /** Entry point for this feature. Hosted by the Compose tab shell and by the native iOS TabView. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun ProfileTabRoot(modifier: Modifier = Modifier) {
-    val vm = viewModel { ProfileViewModel(AppGraph.current.session) { com.vesper.baubuild.feature.auth.signOut() } }
+    val vm = viewModel {
+        ProfileViewModel(AppGraph.current.session, { com.vesper.baubuild.feature.auth.signOut() }, AppGraph.current.gitHubRepository.account)
+    }
     val state by vm.state.collectAsStateWithLifecycle()
     BackHandler(enabled = state.showingLead) { vm.closeBecomeLead() }
-    if (state.showingLead) {
-        BecomeLeadScreen(onClose = vm::closeBecomeLead, modifier = modifier)
-    } else {
-        ProfileScreen(state, onBecomeLead = vm::openBecomeLead, onSignOut = vm::signOut, modifier = modifier)
+    when {
+        // Connect GitHub owns its back handling; it can sit on top of Edit Profile ("Manage"), which keeps its form.
+        state.showingGitHub -> ConnectGitHubScreen(onClose = vm::closeGitHub, modifier = modifier)
+        state.showingLead -> BecomeLeadScreen(onClose = vm::closeBecomeLead, modifier = modifier)
+        // Edit Profile owns its back handling (asks before discarding edits).
+        state.editingProfile -> EditProfileScreen(
+            onClose = vm::closeEditProfile, instanceKey = state.editSession, modifier = modifier,
+            connectedGitHubLogin = state.gitHubAccount?.login, onManageGitHub = vm::openGitHub,
+        )
+        else -> ProfileScreen(
+            state, onBecomeLead = vm::openBecomeLead, onSignOut = vm::signOut,
+            onEditProfile = vm::openEditProfile, onGitHub = vm::openGitHub, modifier = modifier,
+        )
     }
 }
 
@@ -60,6 +75,8 @@ internal fun ProfileScreen(
     onBecomeLead: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
+    onEditProfile: () -> Unit = {},
+    onGitHub: () -> Unit = {},
 ) {
     val user = state.user
     Box(modifier.fillMaxSize().background(BauColors.Paper)) {
@@ -67,15 +84,20 @@ internal fun ProfileScreen(
             CircularProgressIndicator(Modifier.align(Alignment.Center), color = BauColors.Ink)
             return@Box
         }
+        val scroll = rememberScrollState()
+        if (DebugLayout.startScrolledToBottom) LaunchedEffect(scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
         Column(
             Modifier.fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                .verticalScroll(rememberScrollState())
-                .padding(start = BauSpacing.screen, end = BauSpacing.screen, top = 12.dp, bottom = TabBarClearance),
+                .verticalScroll(scroll)
+                .padding(start = BauSpacing.screen, end = BauSpacing.screen, top = 12.dp)
+                // Sign Out (last) comes to rest 24dp above the tab bar.
+                .tabBarContentPadding(),
             verticalArrangement = Arrangement.spacedBy(BauSpacing.lg),
         ) {
             ScreenTitle("Profile", modifier = Modifier.semantics { heading() })
             Identity(user)
+            BauSecondaryButton("Edit Profile", onClick = onEditProfile, modifier = Modifier.fillMaxWidth())
             ScoreCard(state.score, state.tier)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatCard("My Earnings", "\$${user.earningsUsd}", Modifier.weight(1f))
@@ -83,22 +105,25 @@ internal fun ProfileScreen(
             }
             DetailsCard(
                 listOf(
-                    "Skills" to user.skills.joinToString().ifBlank { "None yet" },
-                    "Classes" to user.classCodes.joinToString().ifBlank { "None yet" },
-                    "Role" to user.role.label,
+                    DetailRow("Skills", user.skills.joinToString().ifBlank { "None yet" }),
+                    DetailRow("Classes", user.classCodes.joinToString().ifBlank { "None yet" }),
+                    state.gitHubLogin.let { login ->
+                        if (login != null) DetailRow("GitHub", "@$login", onClick = onGitHub, clickLabel = "Manage GitHub")
+                        else DetailRow("GitHub", "Connect", onClick = onGitHub, clickLabel = "Connect GitHub", isAction = true)
+                    },
+                    DetailRow("Role", user.role.label),
                 ),
             )
             if (state.canBecomeLead) {
                 BauPrimaryButton("Become a Lead", onClick = onBecomeLead, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp))
             }
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (state.signingOut) {
-                    CircularProgressIndicator(Modifier.padding(BauSpacing.md).size(20.dp), color = BauColors.Ink, strokeWidth = 2.dp)
-                } else {
-                    TextButton(onClick = onSignOut, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Text("Sign Out", style = MaterialTheme.typography.labelLarge, color = BauColors.Warning)
-                    }
-                }
+                BauDestructiveButton(
+                    "Sign Out",
+                    onClick = onSignOut,
+                    loading = state.signingOut,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                )
                 state.signOutError?.let {
                     Text(it, style = MaterialTheme.typography.labelMedium, color = BauColors.Warning, textAlign = TextAlign.Center)
                 }
@@ -110,12 +135,7 @@ internal fun ProfileScreen(
 @Composable
 private fun Identity(user: User) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(
-            Modifier.size(64.dp).clip(CircleShape).background(BauColors.BlueDeep).clearAndSetSemantics { },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(user.initials, color = BauColors.Surface, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
+        UserAvatar(user, size = 64.dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(user.displayName, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold, color = BauColors.Ink)
             if (user.bio.isNotBlank()) {
@@ -169,26 +189,45 @@ private fun StatCard(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
-/** Grouped list of label / value rows (Skills, Classes, Role). */
+/** One row of [DetailsCard]. [onClick] makes the whole row tappable (with a chevron); [isAction] tints the value blue. */
+internal data class DetailRow(
+    val label: String,
+    val value: String,
+    val onClick: (() -> Unit)? = null,
+    val clickLabel: String? = null,
+    val isAction: Boolean = false,
+)
+
+/** Grouped list of label / value rows (Skills, Classes, GitHub, Role). */
 @Composable
-private fun DetailsCard(rows: List<Pair<String, String>>) {
+private fun DetailsCard(rows: List<DetailRow>) {
     val shape = RoundedCornerShape(BauRadius.lg)
     Column(
         Modifier.fillMaxWidth().cardShadow().clip(shape).background(BauColors.Surface)
             .border(1.dp, BauColors.Line, shape),
     ) {
-        rows.forEachIndexed { i, (label, value) ->
+        rows.forEachIndexed { i, row ->
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 46.dp).padding(horizontal = 16.dp, vertical = 10.dp)
+                Modifier.fillMaxWidth().heightIn(min = 46.dp)
+                    .then(
+                        if (row.onClick != null) Modifier.clickable(onClickLabel = row.clickLabel, role = SemanticsRole.Button, onClick = row.onClick)
+                        else Modifier,
+                    )
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
                     .semantics(mergeDescendants = true) { },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(label, fontSize = 16.sp, lineHeight = 21.sp, color = BauColors.Ink)
+                Text(row.label, fontSize = 16.sp, lineHeight = 21.sp, color = BauColors.Ink)
                 Text(
-                    value, modifier = Modifier.weight(1f), textAlign = TextAlign.End,
-                    fontSize = 16.sp, lineHeight = 21.sp, color = BauColors.TextSecondary,
+                    row.value, modifier = Modifier.weight(1f), textAlign = TextAlign.End,
+                    fontSize = 16.sp, lineHeight = 21.sp,
+                    fontWeight = if (row.isAction) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (row.isAction) BauColors.BlueDeep else BauColors.TextSecondary,
                 )
+                if (row.onClick != null) {
+                    Text("›", fontSize = 22.sp, lineHeight = 21.sp, color = BauColors.TextTertiary, modifier = Modifier.clearAndSetSemantics { })
+                }
             }
             if (i < rows.lastIndex) HorizontalDivider(color = BauColors.Line, thickness = 1.dp)
         }

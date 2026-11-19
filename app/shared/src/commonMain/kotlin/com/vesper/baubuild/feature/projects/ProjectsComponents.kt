@@ -62,6 +62,8 @@ internal object ProjectsIcons {
     val Plus = strokeIcon("Plus", 20f, "M10 4v12M4 10h12", 2f)
     val Check = strokeIcon("Check", 20f, "M4.5 10.5l3.5 3.5 7.5-8", 2.2f)
     val Clock = strokeIcon("Clock", 20f, "M10 6v4.5l3 2", 2f, circles = listOf(Triple(10f, 10f, 7.5f)))
+    val Bell = strokeIcon("Bell", 20f, "M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8zM8.5 16a1.6 1.6 0 0 0 3 0")
+    val Review = strokeIcon("Review", 20f, "M5 2.5h10v15H5zM7.5 10l2 2 3.5-4")
 
     private fun strokeIcon(
         name: String,
@@ -113,6 +115,26 @@ internal fun GlassCircleButton(
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) { Icon(icon, contentDescription = null, tint = BauColors.Ink, modifier = Modifier.size(20.dp)) }
+}
+
+/** Header bell: [GlassCircleButton] with a small dot badge when there is something unread. */
+@Composable
+internal fun NotificationsBellButton(hasUnread: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier) {
+        GlassCircleButton(
+            ProjectsIcons.Bell,
+            contentDescription = "Notifications",
+            onClick = onClick,
+        )
+        if (hasUnread) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 10.dp).size(10.dp)
+                    .clip(RoundedCornerShape(5.dp)).background(BauColors.Danger)
+                    .border(1.5.dp, Color.White, RoundedCornerShape(5.dp))
+                    .semantics { contentDescription = "Unread notifications" },
+            )
+        }
+    }
 }
 
 /** Back button row used at the top of every pushed screen. */
@@ -227,30 +249,13 @@ internal fun InlineError(text: String, modifier: Modifier = Modifier) {
 // Isometric cubes from the urgent card (viewBox 0 0 120 148)
 // ---------------------------------------------------------------------------------------------------------------
 
+/**
+ * Urgent-card art: the brand blocks falling and stacking on top of each other (same Lottie as Welcome),
+ * looping. Shows the finished stack when the OS asks for reduced motion.
+ */
 @Composable
 internal fun CubeStack(modifier: Modifier = Modifier) {
-    val top = remember { cubeFace(0f, 0f, 24f, 13f, 0f, 26f, -24f, 13f) }
-    val left = remember { cubeFace(-24f, 13f, 0f, 26f, 0f, 52f, -24f, 39f) }
-    val right = remember { cubeFace(24f, 13f, 0f, 26f, 0f, 52f, 24f, 39f) }
-    Canvas(modifier.width(104.dp).height(128.dp)) {
-        val s = size.width / 120f
-        scale(s, s, pivot = Offset.Zero) {
-            fun cube(x: Float, y: Float, colors: List<Color>, line: Color) {
-                listOf(top, left, right).forEachIndexed { i, face ->
-                    val p = Path().apply { addPath(face, Offset(x, y)) }
-                    drawPath(p, colors[i])
-                    drawPath(p, line, style = Stroke(width = 1.2f, join = androidx.compose.ui.graphics.StrokeJoin.Round))
-                }
-            }
-            val navy = listOf(BauColors.Navy700, BauColors.Navy800, BauColors.Navy900)
-            val yellow = listOf(BauColors.YellowLight, BauColors.Yellow, BauColors.YellowDeep)
-            cube(36f, 62f, navy, BauColors.BlueMist)
-            cube(60f, 76f, navy, BauColors.BlueMist)
-            cube(84f, 90f, navy, BauColors.BlueMist)
-            cube(60f, 48f, navy, BauColors.BlueMist)
-            cube(60f, 0f, yellow, BauColors.Ink)
-        }
-    }
+    com.vesper.baubuild.feature.auth.BrandBlocksAnimation(modifier.width(104.dp).height(128.dp))
 }
 
 private fun cubeFace(vararg pts: Float): Path = Path().apply {

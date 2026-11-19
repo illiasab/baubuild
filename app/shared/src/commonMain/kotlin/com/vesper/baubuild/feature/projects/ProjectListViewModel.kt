@@ -46,6 +46,7 @@ class ProjectListViewModel(
         ProjectListSource.AllOpen -> "Everything you can join right now."
         is ProjectListSource.ByDifficulty -> when (source.difficulty) {
             Difficulty.Easy -> "Good first projects. Everyone welcome."
+            Difficulty.Medium -> "A step up. Most are open to every score."
             Difficulty.Hard -> "Bigger bounties. Some need a minimum score or approval."
         }
         is ProjectListSource.ForClass -> source.name.ifBlank { "Projects from your class" }
@@ -55,7 +56,10 @@ class ProjectListViewModel(
         ProjectListUiState(title, subtitle, Viewer.of(s), p)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ProjectListUiState(title, subtitle, Viewer.of(session.value)))
 
-    init { refresh() }
+    init {
+        refresh()
+        viewModelScope.launch { com.vesper.baubuild.core.DataChanges.memberships.collect { refresh() } }
+    }
 
     fun refresh() {
         if (refreshJob?.isActive == true) return

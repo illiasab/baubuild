@@ -1,5 +1,6 @@
 package com.vesper.baubuild.feature.projects
 
+import com.vesper.baubuild.designsystem.tabBarContentPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -67,18 +67,27 @@ internal fun InquiryFormScreen(
     modifier: Modifier = Modifier,
 ) {
     val insets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical).asPaddingValues()
-    Column(
-        modifier.fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(start = 20.dp, end = 20.dp, top = insets.calculateTopPadding() + 10.dp, bottom = insets.calculateBottomPadding() + 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        ProjectsTopBar(onBack, backLabel = "Back to Projects")
-        when (val submit = state.submit) {
-            is SubmitState.Submitted -> SubmittedConfirmation(submit, actions)
-            else -> FormBody(state, actions)
+    val submitted = state.submit as? SubmitState.Submitted
+    Column(modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
+        Column(
+            Modifier.weight(1f).fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, top = insets.calculateTopPadding() + 10.dp)
+                // With the pinned submit area below, only a small gap is needed; otherwise clear the tab bar.
+                .then(if (submitted == null) Modifier.padding(bottom = 16.dp) else Modifier.tabBarContentPadding()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            ProjectsTopBar(onBack, backLabel = "Back to Projects")
+            if (submitted != null) SubmittedConfirmation(submitted, actions) else FormBody(state, actions)
+        }
+        if (submitted == null) {
+            // Pinned on Paper above the tab bar, or above the keyboard while typing (never both).
+            SubmitBar(
+                state, actions,
+                Modifier.fillMaxWidth().background(BauColors.Paper)
+                    .padding(start = 20.dp, end = 20.dp, top = 12.dp)
+                    .tabBarContentPadding(),
+            )
         }
     }
 }
@@ -113,18 +122,23 @@ private fun FormBody(state: InquiryFormUiState, actions: InquiryFormActions) {
         supporting = "BAU BUILD sets the final bounty.",
     )
     UrgentToggle(state.isUrgent, actions.onUrgent, enabled)
+}
 
-    if (state.submit is SubmitState.Failed) {
-        InlineError(state.submit.message, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-    } else if (state.showErrors && !state.isValid) {
-        InlineError("Check the highlighted fields.", Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+@Composable
+private fun SubmitBar(state: InquiryFormUiState, actions: InquiryFormActions, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (state.submit is SubmitState.Failed) {
+            InlineError(state.submit.message, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        } else if (state.showErrors && !state.isValid) {
+            InlineError("Check the highlighted fields.", Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        }
+        BauPrimaryButton(
+            text = if (state.submit is SubmitState.Failed) "Try Again" else "Send Request",
+            onClick = actions.onSubmit,
+            loading = state.isSubmitting,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
+        )
     }
-    BauPrimaryButton(
-        text = if (state.submit is SubmitState.Failed) "Try Again" else "Send Request",
-        onClick = actions.onSubmit,
-        loading = state.isSubmitting,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
-    )
 }
 
 @Composable

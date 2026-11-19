@@ -23,11 +23,12 @@ class ProfileViewModelTest {
     @AfterTest fun tearDown() = Dispatchers.resetMain()
 
     @Test fun showsSignedInUserWithTier() = runTest {
-        val session = SessionStore(InMemoryTokenStore()).apply { signedIn("t", FakeData.sam) }
+        val user = FakeData.sam.copy(score = 180)
+        val session = SessionStore(InMemoryTokenStore()).apply { signedIn("t", user) }
         val vm = ProfileViewModel(session)
         advanceUntilIdle()
         val s = vm.state.value
-        assertEquals(FakeData.sam, s.user)
+        assertEquals(user, s.user)
         assertEquals(180, s.score)
         assertEquals(ScoreTier.Builder, s.tier)
         assertTrue(s.canBecomeLead)

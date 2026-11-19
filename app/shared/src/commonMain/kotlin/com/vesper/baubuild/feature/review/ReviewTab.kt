@@ -40,9 +40,6 @@ import com.vesper.baubuild.designsystem.*
 import com.vesper.baubuild.di.AppGraph
 import androidx.compose.ui.backhandler.BackHandler
 
-/** Space kept free under scrolling content so the floating (Liquid Glass) tab bar never covers it. */
-internal val TabBarClearance = 120.dp
-
 /** Entry point for this feature. Hosted by the Compose tab shell and by the native iOS TabView. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -84,7 +81,7 @@ internal fun ReviewScreen(
 private fun ReviewScaffoldColumn(content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     LazyColumn(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
-        contentPadding = PaddingValues(start = BauSpacing.screen, end = BauSpacing.screen, top = 12.dp, bottom = TabBarClearance),
+        contentPadding = PaddingValues(start = BauSpacing.screen, end = BauSpacing.screen, top = 12.dp, bottom = bottomContentPadding()),
         verticalArrangement = Arrangement.spacedBy(BauSpacing.lg),
         content = content,
     )
@@ -170,7 +167,7 @@ private fun ReviewDetail(review: ReviewStatus, showBack: Boolean, onBack: () -> 
 
 /** "AI Review Complete" findings box: what passed (blue check) and what is worth a look (orange mark). */
 @Composable
-private fun AiNotes(passed: String, warning: String) {
+internal fun AiNotes(passed: String, warning: String) {
     Column(
         Modifier.padding(top = 4.dp).fillMaxWidth().clip(RoundedCornerShape(BauRadius.lg))
             .background(BauColors.Paper).padding(horizontal = 14.dp, vertical = 12.dp),
@@ -211,7 +208,7 @@ internal fun ProjectSummaryCard(project: Project, caption: String?, onClick: (()
     }
 }
 
-internal val Difficulty.label: String get() = when (this) { Difficulty.Easy -> "Easy"; Difficulty.Hard -> "Hard" }
+internal val Difficulty.label: String get() = when (this) { Difficulty.Easy -> "Easy"; Difficulty.Medium -> "Medium"; Difficulty.Hard -> "Hard" }
 
 internal fun Modifier.cardShadow(): Modifier =
     shadow(6.dp, RoundedCornerShape(BauRadius.lg), ambientColor = BauColors.Ink.copy(alpha = 0.06f), spotColor = BauColors.Ink.copy(alpha = 0.06f))

@@ -25,6 +25,7 @@ object BauColors {
     val Warning = Color(0xFFB4530A)
     val WarningInk = Color(0xFF8A3D00)
     val WarningSoft = Color(0xFFFFE9D2)
+    val Danger = Color(0xFFE5383B)       // destructive actions (Sign Out)
 }
 
 object BauSpacing {

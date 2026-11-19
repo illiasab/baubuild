@@ -1,5 +1,6 @@
 package com.vesper.baubuild.feature.mywork.workspace
 
+import com.vesper.baubuild.designsystem.tabBarContentPadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -37,6 +38,7 @@ internal fun WorkspaceScreen(
     viewModel: WorkspaceViewModel,
     onBack: () -> Unit,
     onOpenMentor: () -> Unit,
+    onOpenTask: (taskId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -60,7 +62,7 @@ internal fun WorkspaceScreen(
                 onRefresh = viewModel::refresh,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                WorkspaceContent(workspace, state.segment, onSelectSegment = viewModel::selectSegment)
+                WorkspaceContent(workspace, state.segment, onSelectSegment = viewModel::selectSegment, onOpenTask = onOpenTask)
             }
         }
     }
@@ -71,6 +73,7 @@ private fun WorkspaceContent(
     workspace: Workspace,
     segment: WorkspaceSegment,
     onSelectSegment: (WorkspaceSegment) -> Unit,
+    onOpenTask: (taskId: String) -> Unit,
 ) {
     val project = workspace.project
     Column(
@@ -79,8 +82,7 @@ private fun WorkspaceContent(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = BauSpacing.screen)
             .padding(top = BauSpacing.lg)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-            .padding(bottom = BauSpacing.xxl),
+            .tabBarContentPadding(),
         verticalArrangement = Arrangement.spacedBy(BauSpacing.lg),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(BauSpacing.sm)) {
@@ -107,14 +109,14 @@ private fun WorkspaceContent(
         }
 
         when (segment) {
-            WorkspaceSegment.Tasks -> TasksSection(workspace.tasks.filter { it.assignedToMe })
+            WorkspaceSegment.Tasks -> TasksSection(workspace.tasks.filter { it.assignedToMe }, onOpenTask)
             WorkspaceSegment.Changes -> ChangesSection(workspace.changes)
         }
     }
 }
 
 @Composable
-private fun TasksSection(tasks: List<ProjectTask>) {
+private fun TasksSection(tasks: List<ProjectTask>, onOpenTask: (taskId: String) -> Unit) {
     if (tasks.isEmpty()) {
         EmptyMessage("No tasks yet", "When a task is assigned to you, it shows up here.")
         return
@@ -125,6 +127,7 @@ private fun TasksSection(tasks: List<ProjectTask>) {
                 title = task.title,
                 subtitle = task.subtitle,
                 showDivider = i < tasks.lastIndex,
+                onClick = { onOpenTask(task.id) },
             ) { TaskStatusChip(task.status) }
         }
     }
@@ -151,6 +154,7 @@ private fun ChangesSection(changes: List<CodeChange>) {
 
 internal val Difficulty.label: String get() = when (this) {
     Difficulty.Easy -> "Easy"
+    Difficulty.Medium -> "Medium"
     Difficulty.Hard -> "Hard"
 }
 
@@ -176,7 +180,7 @@ internal val ChangeStatus.label: String get() = when (this) {
 }
 
 @Composable
-private fun TaskStatusChip(status: TaskStatus) = when (status) {
+internal fun TaskStatusChip(status: TaskStatus) = when (status) {
     TaskStatus.InProgress -> WorkChip(status.label, BauColors.BlueDeep, BauColors.Surface)
     TaskStatus.Done -> WorkChip(status.label, BauColors.Ink, BauColors.Surface)
     TaskStatus.Backlog, TaskStatus.ToDo ->

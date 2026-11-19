@@ -1,5 +1,6 @@
 package com.vesper.baubuild.feature.projects
 
+import com.vesper.baubuild.designsystem.bottomContentPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,7 +56,7 @@ private fun <T> PushedListScaffold(
         item(key = "top") { ProjectsTopBar(onBack, backLabel = "Back to Projects", modifier = Modifier.padding(horizontal = 20.dp)) }
         item(key = "title") { ProjectsScreenHeader(title, subtitle, Modifier.padding(horizontal = 20.dp)) }
     }
-    val padding = PaddingValues(top = insets.calculateTopPadding() + 10.dp, bottom = insets.calculateBottomPadding() + 32.dp)
+    val padding = PaddingValues(top = insets.calculateTopPadding() + 10.dp, bottom = bottomContentPadding())
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = onRefresh,

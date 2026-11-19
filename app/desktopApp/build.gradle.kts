@@ -29,9 +29,11 @@ compose.desktop {
             macOS {
                 bundleID = "com.vesper.baubuild"
                 dockName = "BAU BUILD"
+                iconFile.set(project.file("icons/icon.icns"))
             }
             windows {
                 menuGroup = "BAU BUILD"
+                iconFile.set(project.file("icons/icon.ico"))
                 shortcut = true
                 // Stable upgrade code so MSI updates replace the previous install.
                 upgradeUuid = "6f1c3c3e-2b1a-4c7e-9a43-6b0f1d8e5a21"
@@ -39,6 +41,7 @@ compose.desktop {
             linux {
                 packageName = "bau-build"
                 menuGroup = "Development"
+                iconFile.set(project.file("icons/icon.png"))
             }
         }
     }

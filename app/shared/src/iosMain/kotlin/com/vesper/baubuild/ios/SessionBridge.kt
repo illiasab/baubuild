@@ -2,6 +2,8 @@ package com.vesper.baubuild.ios
 
 import com.vesper.baubuild.core.session.SessionState
 import com.vesper.baubuild.di.AppGraph
+import com.vesper.baubuild.feature.staff.isStaff
+import com.vesper.baubuild.feature.staff.tour.StaffTour
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -17,6 +19,10 @@ class SessionSnapshot internal constructor(
     val isRestoring: Boolean,
     val isSignedIn: Boolean,
     val userDisplayName: String?,
+    /** Signed-in @bau.edu staff → the staff shell (StaffTabShell); otherwise the student shell. */
+    val isStaff: Boolean = false,
+    /** Signed-in user's id (empty when signed out). */
+    val userId: String = "",
 ) {
     val isSignedOut: Boolean get() = !isRestoring && !isSignedIn
 }
@@ -29,7 +35,9 @@ interface SessionObservation {
 private fun SessionState.toSnapshot() = when (this) {
     SessionState.Restoring -> SessionSnapshot(isRestoring = true, isSignedIn = false, userDisplayName = null)
     SessionState.SignedOut -> SessionSnapshot(isRestoring = false, isSignedIn = false, userDisplayName = null)
-    is SessionState.SignedIn -> SessionSnapshot(isRestoring = false, isSignedIn = true, userDisplayName = user.displayName)
+    is SessionState.SignedIn -> SessionSnapshot(
+        isRestoring = false, isSignedIn = true, userDisplayName = user.displayName, isStaff = user.isStaff, userId = user.id,
+    )
 }
 
 /**
@@ -49,12 +57,16 @@ fun observeSession(onChange: (SessionSnapshot) -> Unit): SessionObservation {
 private var started = false
 
 /**
- * Restores the stored session once per process (idempotent). Call at app launch, after any platform
- * [AppGraph.init] (e.g. Keychain token store) has run.
+ * Restores the stored session once per process (idempotent): stored tokens → `GET /v1/me`, otherwise signed out
+ * (Welcome). Call at app launch, after any platform [AppGraph.init] (e.g. Keychain token store) has run.
  */
 fun startSession() {
     if (started) return
     started = true
     val graph = AppGraph.current
-    MainScope().launch { graph.session.restore { graph.authRepository.me(it) } }
+    MainScope().launch { graph.restoreSession() }
+    // Sign-out (or a user switch) ends any running staff tour; the next staff shell decides again.
+    MainScope().launch {
+        graph.session.state.collect { if (it !is SessionState.SignedIn) StaffTour.reset() }
+    }
 }

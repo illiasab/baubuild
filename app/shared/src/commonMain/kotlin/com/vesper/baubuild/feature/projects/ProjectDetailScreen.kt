@@ -1,5 +1,12 @@
 package com.vesper.baubuild.feature.projects
 
+import com.vesper.baubuild.designsystem.tabBarContentPadding
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,13 +64,16 @@ internal fun ProjectDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val insets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical).asPaddingValues()
+    val density = LocalDensity.current
+    // The pinned footer overlays the bottom (with a fade); the scroll content reserves its measured height.
+    var footerHeight by remember { mutableStateOf(200.dp) }
     Box(modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
         when (val load = state.project) {
             is LoadState.Content -> {
                 LoadStateContent(load, onRetry = onRetry, modifier = Modifier.fillMaxSize()) { project ->
                     Column(
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                            .padding(start = 20.dp, end = 20.dp, top = insets.calculateTopPadding() + 10.dp, bottom = 200.dp),
+                            .padding(start = 20.dp, end = 20.dp, top = insets.calculateTopPadding() + 10.dp, bottom = footerHeight + 8.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         ProjectsTopBar(onBack, backLabel = "Back to Projects")
@@ -75,7 +85,7 @@ internal fun ProjectDetailScreen(
                     state = state,
                     onJoin = onJoin,
                     modifier = Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = insets.calculateBottomPadding()),
+                        .onSizeChanged { footerHeight = with(density) { it.height.toDp() } },
                 )
             }
             else -> Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = insets.calculateTopPadding() + 10.dp)) {
@@ -188,8 +198,10 @@ private fun JoinFooter(project: Project, state: ProjectDetailUiState, onJoin: ()
     Column(
         modifier
             .fillMaxWidth()
+            // Paper reaches the window bottom (behind the tab bar); the actions end 24dp above the bar's top edge.
             .background(Brush.verticalGradient(listOf(BauColors.Paper.copy(alpha = 0f), BauColors.Paper, BauColors.Paper)))
-            .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 24.dp)
+            .tabBarContentPadding(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when (val join = state.join) {
@@ -218,11 +230,12 @@ private fun JoinFooter(project: Project, state: ProjectDetailUiState, onJoin: ()
     }
 }
 
+/** "You're in" / "Request sent" confirmation. Also used as the banner on Projects home after joining. */
 @Composable
-private fun JoinedCard(status: MembershipStatus) {
+internal fun JoinedCard(status: MembershipStatus, modifier: Modifier = Modifier) {
     val waiting = status == MembershipStatus.WaitingForApproval
     Row(
-        Modifier.fillMaxWidth()
+        modifier.fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(if (waiting) BauColors.WarningSoft else BauColors.BlueSoft)
             .padding(16.dp)

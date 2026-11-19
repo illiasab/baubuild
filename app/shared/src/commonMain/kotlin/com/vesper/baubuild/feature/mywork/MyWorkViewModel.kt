@@ -50,7 +50,11 @@ class MyWorkViewModel(private val repository: WorkRepository) : ViewModel() {
         .map { MyWorkUiState(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, MyWorkUiState())
 
-    init { refresh() }
+    init {
+        refresh()
+        // Joining a project elsewhere (detail screen, portal) changes what this screen lists.
+        viewModelScope.launch { com.vesper.baubuild.core.DataChanges.memberships.collect { refresh() } }
+    }
 
     /** Pull-to-refresh / retry. Keeps the current list visible while loading (zero-downtime rule). */
     fun refresh() {

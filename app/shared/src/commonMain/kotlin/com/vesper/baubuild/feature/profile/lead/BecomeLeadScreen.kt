@@ -1,5 +1,6 @@
 package com.vesper.baubuild.feature.profile.lead
 
+import com.vesper.baubuild.designsystem.tabBarContentPadding
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,7 +34,6 @@ import com.vesper.baubuild.designsystem.BauColors
 import com.vesper.baubuild.designsystem.BauPrimaryButton
 import com.vesper.baubuild.designsystem.BauSpacing
 import com.vesper.baubuild.feature.review.StageTimeline
-import com.vesper.baubuild.feature.review.TabBarClearance
 import com.vesper.baubuild.feature.review.TimelineStep
 import com.vesper.baubuild.feature.review.cardShadow
 
@@ -54,34 +54,43 @@ internal fun BecomeLeadContent(
 ) {
     Column(
         modifier.fillMaxSize().background(BauColors.Paper)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .verticalScroll(rememberScrollState())
-            .padding(start = BauSpacing.screen, end = BauSpacing.screen, top = 12.dp, bottom = TabBarClearance),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
     ) {
-        CloseButton(onClose)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                "Become a Lead", modifier = Modifier.semantics { heading() },
-                fontSize = 34.sp, lineHeight = 41.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.68).sp, color = BauColors.Ink,
-            )
-            Text(
-                "Leads review student code and decide what gets approved. Two stages stand between you and the role.",
-                fontSize = 17.sp, lineHeight = 24.sp, color = BauColors.TextSecondary,
-            )
+        Column(
+            Modifier.weight(1f).fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = BauSpacing.screen, end = BauSpacing.screen, top = 12.dp, bottom = BauSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            CloseButton(onClose)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Become a Lead", modifier = Modifier.semantics { heading() },
+                    fontSize = 34.sp, lineHeight = 41.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.68).sp, color = BauColors.Ink,
+                )
+                Text(
+                    "Leads review student code and decide what gets approved. Two stages stand between you and the role.",
+                    fontSize = 17.sp, lineHeight = 24.sp, color = BauColors.TextSecondary,
+                )
+            }
+            BauCard(Modifier.fillMaxWidth().cardShadow()) {
+                StageTimeline(state.stages.map { stage ->
+                    TimelineStep(stage.title, stage.state, dimTitleWhenPending = false) {
+                        Text(
+                            stage.detail, fontSize = 15.sp, lineHeight = 20.sp,
+                            color = if (stage.state == ReviewStageState.Pending) BauColors.TextSecondary else BauColors.Ink,
+                        )
+                    }
+                })
+            }
         }
-        BauCard(Modifier.fillMaxWidth().cardShadow()) {
-            StageTimeline(state.stages.map { stage ->
-                TimelineStep(stage.title, stage.state, dimTitleWhenPending = false) {
-                    Text(
-                        stage.detail, fontSize = 15.sp, lineHeight = 20.sp,
-                        color = if (stage.state == ReviewStageState.Pending) BauColors.TextSecondary else BauColors.Ink,
-                    )
-                }
-            })
-        }
-        Spacer(Modifier.height(BauSpacing.sm))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Pinned CTA on Paper, 24dp above the tab bar.
+        Column(
+            Modifier.fillMaxWidth().background(BauColors.Paper)
+                .padding(start = BauSpacing.screen, end = BauSpacing.screen, top = BauSpacing.md)
+                .tabBarContentPadding(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             BauPrimaryButton("Start Proctored Exam", onClick = onStartExam, modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp))
             Text(
                 "You stay a student builder until both stages are passed.",

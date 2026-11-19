@@ -2,7 +2,6 @@ package com.vesper.baubuild.core.auth
 
 import io.ktor.http.URLBuilder
 import io.ktor.http.Url
-import kotlinx.coroutines.delay
 
 /**
  * What the app hands to the backend after Microsoft sign-in: an authorization code plus the PKCE verifier
@@ -13,14 +12,23 @@ data class MicrosoftAuthorization(val code: String, val codeVerifier: String, va
 /** The user closed the browser / sheet. Not an error worth showing. (Not a CancellationException on purpose.) */
 class MicrosoftSignInCancelled : Exception("Sign-in was cancelled")
 
+/**
+ * This build has no Entra ID app registration yet ([MicrosoftAuthConfig.isConfigured] is false). Thrown before any
+ * browser opens, so the user sees an inline explanation instead of a Microsoft error page.
+ */
+class MicrosoftSignInNotConfigured : Exception("Microsoft sign-in isn't set up for this build yet.")
+
 /** Microsoft returned an OAuth error (e.g. `access_denied`, `invalid_request`) or the callback was malformed. */
 class MicrosoftSignInException(val error: String, val description: String? = null) :
     Exception(description ?: error)
 
-/** Common entry point. Real: [MicrosoftOAuthSignIn]; development: [FakeMicrosoftSignIn]. */
+/** Common entry point. Implemented by [MicrosoftOAuthSignIn]; tests use a fake. */
 interface MicrosoftSignIn {
-    /** Suspends until the user finishes in the browser. Throws [MicrosoftSignInCancelled] if they back out. */
-    suspend fun signIn(): MicrosoftAuthorization
+    /**
+     * Suspends until the user finishes in the browser. Throws [MicrosoftSignInCancelled] if they back out.
+     * [loginHint] pre-fills the Microsoft account picker (OAuth `login_hint`); the user can still change it.
+     */
+    suspend fun signIn(loginHint: String? = null): MicrosoftAuthorization
 }
 
 /** Raw result of the platform browser leg: the full callback URL Microsoft redirected to. */
@@ -46,15 +54,16 @@ class MicrosoftOAuthSignIn(
     private val stateFactory: () -> String = { randomUrlSafeString(16) },
 ) : MicrosoftSignIn {
 
-    override suspend fun signIn(): MicrosoftAuthorization {
+    override suspend fun signIn(loginHint: String?): MicrosoftAuthorization {
+        if (!config.isConfigured) throw MicrosoftSignInNotConfigured()
         val pkce = pkceFactory()
         val state = stateFactory()
-        val callback = browser.authorize(config) { redirectUri -> authorizeUrl(redirectUri, pkce, state) }
+        val callback = browser.authorize(config) { redirectUri -> authorizeUrl(redirectUri, pkce, state, loginHint) }
         val code = parseCallback(callback.callbackUrl, expectedState = state)
         return MicrosoftAuthorization(code, pkce.verifier, callback.redirectUri)
     }
 
-    fun authorizeUrl(redirectUri: String, pkce: Pkce, state: String): String =
+    fun authorizeUrl(redirectUri: String, pkce: Pkce, state: String, loginHint: String? = null): String =
         URLBuilder(config.authorizeEndpoint).apply {
             parameters.append("client_id", config.clientId)
             parameters.append("response_type", "code")
@@ -66,6 +75,7 @@ class MicrosoftOAuthSignIn(
             parameters.append("code_challenge_method", "S256")
             parameters.append("prompt", "select_account")
             config.domainHint?.let { parameters.append("domain_hint", it) }
+            loginHint?.trim()?.takeIf { it.isNotEmpty() }?.let { parameters.append("login_hint", it) }
         }.buildString()
 
     companion object {
@@ -84,24 +94,3 @@ class MicrosoftOAuthSignIn(
     }
 }
 
-/**
- * Development stand-in used while [MicrosoftAuthConfig.isConfigured] is false or the fake backend is on.
- * Returns a code `fake-code:<email>` that [com.vesper.baubuild.data.fake.FakeAuthRepository] understands,
- * so the demo account picker on the welcome screen can show the student, staff and blocked flows.
- */
-class FakeMicrosoftSignIn(
-    val demoEmails: List<String> = DEFAULT_DEMO_EMAILS,
-    private val latencyMillis: Long = 400,
-) : MicrosoftSignIn {
-    var selectedEmail: String = demoEmails.first()
-
-    override suspend fun signIn(): MicrosoftAuthorization {
-        delay(latencyMillis)
-        return MicrosoftAuthorization(code = FAKE_CODE_PREFIX + selectedEmail, codeVerifier = "fake-verifier", redirectUri = "fake://auth")
-    }
-
-    companion object {
-        const val FAKE_CODE_PREFIX = "fake-code:"
-        val DEFAULT_DEMO_EMAILS = listOf("sam.carter@stu.bau.edu", "dr.aydin@bau.edu", "alex@gmail.com")
-    }
-}

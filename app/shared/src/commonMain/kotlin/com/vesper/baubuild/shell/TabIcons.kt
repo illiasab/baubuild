@@ -29,6 +29,8 @@ internal object TabIcons {
         strokeIcon("Search", 24f, 2f, "M4 10.5a6.5 6.5 0 1 0 13 0a6.5 6.5 0 1 0-13 0z", "M15.5 15.5L20 20")
     }
 
+    val Clear by lazy { strokeIcon("Clear", 24f, 3f, "M7 7l10 10M17 7L7 17") }
+
     private fun strokeIcon(name: String, viewport: Float, stroke: Float, vararg paths: String): ImageVector =
         ImageVector.Builder(
             name = name,

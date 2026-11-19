@@ -40,6 +40,29 @@ fun BauPrimaryButton(
     }
 }
 
+/** Red destructive action (Sign Out). Same shape and height as [BauPrimaryButton]. */
+@Composable
+fun BauDestructiveButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+) {
+    Button(
+        onClick = onClick,
+        enabled = !loading,
+        modifier = modifier.heightIn(min = 52.dp),
+        shape = RoundedCornerShape(BauRadius.pill),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = BauColors.Danger, contentColor = Color.White,
+            disabledContainerColor = BauColors.Danger.copy(alpha = 0.7f), disabledContentColor = Color.White,
+        ),
+    ) {
+        if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+        else Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+    }
+}
+
 /** Dark/outlined secondary action ("Log In", "View Project", "Request"). */
 @Composable
 fun BauSecondaryButton(
@@ -117,7 +140,7 @@ fun BauPill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modi
 fun SectionHeader(title: String, modifier: Modifier = Modifier, action: String? = null, onAction: () -> Unit = {}) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-        if (action != null) TextButton(onClick = onAction) { Text(action, color = BauColors.Blue) }
+        if (action != null) BauTextLink(action, onClick = onAction, color = BauColors.Blue, fontWeight = FontWeight.SemiBold)
     }
 }
 

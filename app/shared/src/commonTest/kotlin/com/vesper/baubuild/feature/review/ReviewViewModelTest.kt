@@ -19,6 +19,7 @@ private class ScriptedWorkRepository(var reviews: List<ReviewStatus>, var fail: 
     var calls = 0
     override suspend fun myWork(): List<Membership> = emptyList()
     override suspend fun workspace(projectId: String): Workspace = error("unused")
+    override suspend fun updateTaskStatus(projectId: String, taskId: String, status: com.vesper.baubuild.core.model.TaskStatus): com.vesper.baubuild.core.model.ProjectTask = error("unused")
     override suspend fun reviews(): List<ReviewStatus> {
         calls++
         if (fail) error("offline")

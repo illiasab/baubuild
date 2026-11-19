@@ -4,5 +4,21 @@
     <dict>
         <key>CADisableMinimumFrameDurationOnPhone</key>
         <true/>
+        <!-- System launch screen: eagle logo on the logo's navy, identical to SplashView so the hand-off is seamless. -->
+        <key>UILaunchScreen</key>
+        <dict>
+            <key>UIImageName</key>
+            <string>SplashLogo</string>
+            <key>UIColorName</key>
+            <string>SplashBackground</string>
+            <key>UIImageRespectsSafeAreaInsets</key>
+            <false/>
+        </dict>
+        <!-- Lets a Debug build talk to a local backend (`-apiBaseUrl http://127.0.0.1:8000/`). Only local hosts. -->
+        <key>NSAppTransportSecurity</key>
+        <dict>
+            <key>NSAllowsLocalNetworking</key>
+            <true/>
+        </dict>
     </dict>
 </plist>

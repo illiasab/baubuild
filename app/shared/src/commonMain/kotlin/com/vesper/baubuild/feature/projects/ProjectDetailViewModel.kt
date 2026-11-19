@@ -23,7 +23,11 @@ import kotlinx.coroutines.launch
 sealed interface JoinState {
     data object Idle : JoinState
     data object Joining : JoinState
-    data class Joined(val status: MembershipStatus) : JoinState
+    /**
+     * [connectGitHubRepo] non-null = ask the user to connect GitHub next (they're In, the project has a repo and
+     * GitHub isn't connected); it's the repo the token guide should name.
+     */
+    data class Joined(val status: MembershipStatus, val connectGitHubRepo: String? = null) : JoinState
     data class Failed(val message: String) : JoinState
 }
 
@@ -46,6 +50,8 @@ class ProjectDetailViewModel(
     private val session: StateFlow<SessionState>,
     /** Row data the user tapped, shown instantly while the full project refreshes. */
     seed: Project? = null,
+    /** Whether GitHub is connected right now (e.g. `{ gitHubRepository.account.value != null }`). Default: never prompt. */
+    private val isGitHubConnected: () -> Boolean = { true },
 ) : ViewModel() {
     private val project = MutableStateFlow<LoadState<Project>>(
         seed?.takeIf { it.id == projectId }?.let { LoadState.Content(it) } ?: LoadState.Loading,
@@ -74,7 +80,8 @@ class ProjectDetailViewModel(
         join.value = JoinState.Joining
         viewModelScope.launch {
             join.value = try {
-                JoinState.Joined(repository.join(projectId).status)
+                val status = repository.join(projectId).status
+                JoinState.Joined(status, gitHubPromptRepoAfterJoin(status, project.value.dataOrNull, isGitHubConnected()))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -87,3 +94,10 @@ class ProjectDetailViewModel(
         join.update { if (it is JoinState.Failed) JoinState.Idle else it }
     }
 }
+
+/**
+ * After a successful join: the repo to name in the "connect GitHub" prompt, or null for no prompt. Only when the
+ * user is In (not waiting for approval), the project has a repo and GitHub isn't connected yet.
+ */
+internal fun gitHubPromptRepoAfterJoin(status: MembershipStatus, project: Project?, gitHubConnected: Boolean): String? =
+    project?.repoFullName?.trim()?.takeIf { status == MembershipStatus.In && !gitHubConnected && it.isNotEmpty() }

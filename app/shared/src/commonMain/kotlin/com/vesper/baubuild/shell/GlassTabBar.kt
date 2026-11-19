@@ -1,6 +1,12 @@
 package com.vesper.baubuild.shell
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -9,11 +15,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,17 +76,75 @@ internal fun Modifier.glassSurface(shape: Shape, elevation: Dp = 16.dp): Modifie
     .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.92f), Color.White.copy(alpha = 0.72f))))
     .border(1.dp, Color.White.copy(alpha = 0.85f), shape)
 
-/** Floating pill with the four primary tabs (compact windows). */
+private val BarSpring = spring<Dp>(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+private val BarFade = tween<Float>(durationMillis = 180)
+
+/**
+ * Compact-window bottom bar, Apple Music style. Normally: floating pill with the four primary tabs + a round search
+ * button on its right. While searching: the pill collapses into a round button on the left showing the tab search
+ * will return to, and the search button stretches into a glass capsule holding [ShellSearchField].
+ * Both halves keep the same total width ([pillWidth] + gap + one bar height), so the bar never jumps sideways.
+ */
 @Composable
-internal fun GlassTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier) {
+internal fun GlassBottomBar(
+    nav: ShellNavigation,
+    pillWidth: Dp,
+    onExitSearch: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val searching = nav.isSearching
     val shape = RoundedCornerShape(GlassBarHeight / 2)
-    Row(
-        modifier
-            .height(GlassBarHeight)
-            .glassSurface(shape)
-            .padding(4.dp)
-            .selectableGroup(),
-    ) {
+    val leftWidth by animateDpAsState(if (searching) GlassBarHeight else pillWidth, BarSpring, label = "pillWidth")
+    val rightWidth by animateDpAsState(if (searching) pillWidth else GlassBarHeight, BarSpring, label = "searchWidth")
+
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(leftWidth).height(GlassBarHeight).glassSurface(shape)) {
+            Crossfade(searching, Modifier.fillMaxSize(), animationSpec = BarFade, label = "pillContent") { collapsed ->
+                if (collapsed) {
+                    val spec = PrimaryTabs.first { it.tab == nav.returnTab }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .clickable(role = Role.Button, onClickLabel = "Close search", onClick = onExitSearch)
+                            .semantics { contentDescription = "Close search, back to ${spec.label}" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(spec.icon, contentDescription = null, tint = BauColors.Ink, modifier = Modifier.size(24.dp))
+                    }
+                } else {
+                    // Laid out at full pill width and clipped by the shrinking glass, so tabs don't squash mid-morph.
+                    PrimaryTabsRow(
+                        selected = nav.selected,
+                        onSelect = nav::select,
+                        modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).width(pillWidth),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(BarItemGap))
+        Box(Modifier.width(rightWidth).height(GlassBarHeight).glassSurface(shape)) {
+            Crossfade(searching, Modifier.fillMaxSize(), animationSpec = BarFade, label = "searchContent") { expanded ->
+                if (expanded) {
+                    ShellSearchField()
+                } else {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .selectable(selected = false, onClick = nav::enterSearch, role = Role.Tab)
+                            .semantics { contentDescription = "Search projects" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(TabIcons.Search, contentDescription = null, tint = BauColors.Ink, modifier = Modifier.size(24.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrimaryTabsRow(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxHeight().padding(4.dp).selectableGroup()) {
         PrimaryTabs.forEach { spec ->
             TabItem(
                 spec = spec,
@@ -89,26 +156,27 @@ internal fun GlassTabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier:
     }
 }
 
-/** Separate circular glass button to the right of the bar. */
+/** Wide-window search field shown above the content (the side rail has no bar to morph). */
 @Composable
-internal fun GlassSearchButton(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(GlassBarHeight / 2)
-    val tint by animateColorAsState(if (selected) SelectedTint else BauColors.Ink, label = "searchTint")
-    Box(
-        modifier
-            .size(GlassBarHeight)
-            .glassSurface(shape)
-            .then(if (selected) Modifier.background(SelectedFill) else Modifier)
-            .selectable(selected = selected, onClick = onClick, role = Role.Tab)
-            .semantics { contentDescription = "Search projects" },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(TabIcons.Search, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+internal fun WideSearchBar(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .widthIn(max = 640.dp)
+                .fillMaxWidth()
+                .height(56.dp)
+                .glassSurface(RoundedCornerShape(28.dp), elevation = 8.dp),
+        ) { ShellSearchField() }
     }
 }
 
 @Composable
-private fun TabItem(spec: TabSpec, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun TabItem(spec: TabSpec, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) =
+    GlassTabItem(spec.label, spec.icon, selected, onClick, modifier)
+
+/** One tab of a glass bar / rail: icon over a small label, blue tint + soft pill when selected. */
+@Composable
+internal fun GlassTabItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val fill by animateColorAsState(if (selected) SelectedFill else Color.Transparent, label = "tabFill")
     val tint by animateColorAsState(if (selected) SelectedTint else IdleTint, label = "tabTint")
     Column(
@@ -119,13 +187,13 @@ private fun TabItem(spec: TabSpec, selected: Boolean, onClick: () -> Unit, modif
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(spec.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
         Spacer(Modifier.height(3.dp))
-        Text(spec.label, color = tint, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(label, color = tint, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
-/** Vertical glass rail for wide windows (desktop, tablets ≥ 840dp). */
+/** Vertical glass rail for wide mobile-design windows (Android tablets ≥ 840dp). Desktop uses the portal sidebar. */
 @Composable
 internal fun GlassSideRail(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(32.dp)

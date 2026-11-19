@@ -1,5 +1,11 @@
 package com.vesper.baubuild.feature.projects
 
+import com.vesper.baubuild.designsystem.BauTextLink
+
+import com.vesper.baubuild.designsystem.DebugLayout
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.vesper.baubuild.designsystem.bottomContentPadding
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,15 +83,27 @@ internal fun ProjectsHomeScreen(
         onRefresh = onRefresh,
         modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
     ) {
+        val listState = rememberLazyListState()
+        if (DebugLayout.startScrolledToBottom) {
+            val count = listState.layoutInfo.totalItemsCount
+            LaunchedEffect(count) { if (count > 0) listState.scrollToItem(count - 1) }
+        }
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(
                 top = insets.calculateTopPadding() + 10.dp,
-                bottom = insets.calculateBottomPadding() + 32.dp,
+                bottom = bottomContentPadding(),
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item(key = "brand") { BrandRow(Modifier.padding(horizontal = Gutter)) }
+            item(key = "brand") {
+                BrandRow(
+                    hasUnreadNotifications = state.hasUnreadNotifications,
+                    onNotifications = { onNavigate(ProjectsRoute.Notifications) },
+                    modifier = Modifier.padding(horizontal = Gutter),
+                )
+            }
             item(key = "greeting") { Greeting(state.viewer.firstName, Modifier.padding(horizontal = Gutter)) }
 
             val urgent = (state.urgent as? LoadState.Content)?.data.orEmpty()
@@ -132,9 +150,11 @@ internal fun ProjectsHomeScreen(
 }
 
 @Composable
-private fun BrandRow(modifier: Modifier = Modifier) {
+private fun BrandRow(hasUnreadNotifications: Boolean, onNotifications: () -> Unit, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
         BrandMark(Modifier.semantics { contentDescription = "BAU BUILD" })
+        Spacer(Modifier.weight(1f))
+        NotificationsBellButton(hasUnreadNotifications, onClick = onNotifications)
     }
 }
 
@@ -321,8 +341,6 @@ private fun OpenProjectsHeader(onSeeAll: () -> Unit, modifier: Modifier = Modifi
             "Open Projects", fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 25.sp, letterSpacing = (-0.4).sp,
             color = BauColors.Ink, modifier = Modifier.weight(1f).semantics { heading() },
         )
-        TextButton(onClick = onSeeAll, contentPadding = PaddingValues(horizontal = 4.dp)) {
-            Text("See All", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = BauColors.BlueDeep)
-        }
+        BauTextLink("See All", onClick = onSeeAll, fontWeight = FontWeight.Medium)
     }
 }

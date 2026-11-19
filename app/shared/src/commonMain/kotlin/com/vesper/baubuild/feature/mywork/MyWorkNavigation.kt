@@ -24,8 +24,28 @@ sealed interface MyWorkRoute {
         override val key get() = "mentor/$projectId"
     }
 
+    /** Task detail, pushed from the workspace's "My Tasks" list. */
+    data class TaskDetail(val projectId: String, val taskId: String) : MyWorkRoute {
+        override val key get() = "task/$projectId/$taskId"
+    }
+
+    /** In-app code workspace for a task (pushed from task detail "Start Task" / "Open Code"). */
+    data class Code(val projectId: String, val taskId: String) : MyWorkRoute {
+        override val key get() = "code/$projectId/$taskId"
+    }
+
     companion object {
         fun decode(key: String): MyWorkRoute? {
+            if (key.startsWith("code/")) {
+                val parts = key.split('/')
+                if (parts.size != 3 || parts[1].isEmpty() || parts[2].isEmpty()) return null
+                return Code(parts[1], parts[2])
+            }
+            if (key.startsWith("task/")) {
+                val parts = key.split('/')
+                if (parts.size != 3 || parts[1].isEmpty() || parts[2].isEmpty()) return null
+                return TaskDetail(parts[1], parts[2])
+            }
             val id = key.substringAfter('/', missingDelimiterValue = "").ifEmpty { return null }
             return when (key.substringBefore('/')) {
                 "workspace" -> Workspace(id)

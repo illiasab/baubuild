@@ -1,5 +1,6 @@
 package com.vesper.baubuild.feature.mywork.workspace
 
+import com.vesper.baubuild.designsystem.tabBarContentPadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,7 +29,8 @@ internal fun MentorAiScreen(
     Column(
         modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .tabBarContentPadding()
             .padding(horizontal = BauSpacing.screen)
             .padding(top = BauSpacing.sm),
         verticalArrangement = Arrangement.spacedBy(BauSpacing.lg),

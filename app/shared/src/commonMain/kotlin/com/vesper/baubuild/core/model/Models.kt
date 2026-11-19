@@ -23,6 +23,9 @@ data class User(
     val approvedProjects: Int = 0,
     val skills: List<String> = emptyList(),
     val classCodes: List<String> = emptyList(),
+    /** Profile photo URL (backend-hosted). Null → initials avatar. */
+    val avatarUrl: String? = null,
+    val githubUsername: String? = null,
 ) {
     val firstName: String get() = displayName.substringBefore(' ')
     val initials: String
@@ -40,7 +43,7 @@ enum class ScoreTier(val label: String, val min: Int) {
 }
 
 @Serializable
-enum class Difficulty { Easy, Hard }
+enum class Difficulty { Easy, Medium, Hard }
 
 /** How a student gets into a project. */
 @Serializable
@@ -69,6 +72,8 @@ data class Project(
     val dueInDays: Int,
     val repoName: String? = null,
     val repoConnected: Boolean = false,
+    /** "owner/name" on GitHub (e.g. "bau-build/library-booking"); used by the in-app code workspace. */
+    val repoFullName: String? = repoName?.let { "bau-build/$it" },
     val reviewer: Reviewer = Reviewer.AiThenDevLead,
     /** Set when this project belongs to a class the student is enrolled in. */
     val classCode: String? = null,
@@ -129,7 +134,21 @@ data class ProjectTask(
     val status: TaskStatus,
     val dueInDays: Int? = null,
     val assignedToMe: Boolean = true,
+    /** What to do and why. */
+    val description: String = "",
+    /** "Done when…" checklist the reviewer checks against. */
+    val acceptanceCriteria: List<String> = emptyList(),
+    /** Deadline as an ISO date (yyyy-MM-dd); [dueInDays] is the relative form shown in lists. */
+    val dueDate: String? = null,
+    val priority: TaskPriority = TaskPriority.Medium,
+    val resources: List<TaskResource> = emptyList(),
 )
+
+@Serializable
+enum class TaskPriority { Low, Medium, High }
+
+@Serializable
+data class TaskResource(val label: String, val url: String)
 
 @Serializable
 enum class ChangeStatus { Approved, WithDevLead, ChangesRequested, Pushed }

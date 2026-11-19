@@ -44,13 +44,16 @@ import com.vesper.baubuild.core.model.Reviewer
 import com.vesper.baubuild.designsystem.*
 import com.vesper.baubuild.di.AppGraph
 import com.vesper.baubuild.feature.review.ProjectSummaryCard
-import com.vesper.baubuild.feature.review.TabBarClearance
 import com.vesper.baubuild.feature.review.label
 
 /** Entry point for this feature. Hosted by the Compose tab shell and by the native iOS TabView. */
 @Composable
-fun SearchRoot(modifier: Modifier = Modifier) {
-    val vm = viewModel { SearchViewModel(AppGraph.current.projectRepository) }
+fun SearchRoot(
+    modifier: Modifier = Modifier,
+    /** False when the shell hosts the field in the tab bar (default on every platform); true draws one here. */
+    showsOwnField: Boolean = false,
+) {
+    val vm = viewModel { SearchViewModel(AppGraph.current.projectRepository, query = SearchQuery.text) }
     val state by vm.state.collectAsStateWithLifecycle()
     SearchScreen(
         state,
@@ -61,6 +64,7 @@ fun SearchRoot(modifier: Modifier = Modifier) {
         onOpen = vm::open,
         onDismissDetail = vm::dismissDetail,
         onRetry = vm::refresh,
+        showsOwnField = showsOwnField,
         modifier = modifier,
     )
 }
@@ -75,6 +79,7 @@ internal fun SearchScreen(
     onOpen: (Project) -> Unit,
     onDismissDetail: () -> Unit,
     onRetry: () -> Unit,
+    showsOwnField: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -86,7 +91,7 @@ internal fun SearchScreen(
             verticalArrangement = Arrangement.spacedBy(BauSpacing.md),
         ) {
             ScreenTitle("Search", modifier = Modifier.semantics { heading() })
-            SearchField(state.query, onQueryChange, onClear)
+            if (showsOwnField) SearchField(state.query, onQueryChange, onClear)
         }
         LoadStateContent(state.projects, onRetry = onRetry, modifier = Modifier.fillMaxSize()) {
             SearchBody(state, onRecent, onClearRecent, onOpen)
@@ -137,7 +142,7 @@ private fun SearchBody(
     val all = (state.projects as? LoadState.Content)?.data.orEmpty()
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = BauSpacing.screen, end = BauSpacing.screen, top = BauSpacing.xs, bottom = TabBarClearance),
+        contentPadding = PaddingValues(start = BauSpacing.screen, end = BauSpacing.screen, top = BauSpacing.xs, bottom = bottomContentPadding()),
         verticalArrangement = Arrangement.spacedBy(BauSpacing.md),
     ) {
         when {

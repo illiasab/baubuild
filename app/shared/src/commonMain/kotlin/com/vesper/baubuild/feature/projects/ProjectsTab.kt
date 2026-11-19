@@ -1,6 +1,25 @@
 package com.vesper.baubuild.feature.projects
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.unit.dp
+import com.vesper.baubuild.core.model.MembershipStatus
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,6 +46,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vesper.baubuild.core.model.Project
 import com.vesper.baubuild.designsystem.BauColors
 import com.vesper.baubuild.di.AppGraph
+import com.vesper.baubuild.feature.github.ConnectGitHubPrompt
+import com.vesper.baubuild.feature.github.GitHubJoinPromptWhy
+import com.vesper.baubuild.feature.notifications.NotificationsScreen
+import com.vesper.baubuild.feature.notifications.NotificationsViewModel
 
 private const val HOME_KEY = "home"
 
@@ -41,10 +64,20 @@ fun ProjectsTabRoot(modifier: Modifier = Modifier) {
     // Row data handed to the detail screen so it renders instantly while it refreshes. Not saved: after process
     // death the detail simply loads.
     val seeds = remember { mutableMapOf<String, Project>() }
+    // One-shot confirmation shown on Projects home after a successful join.
+    var joinNotice by remember { mutableStateOf<MembershipStatus?>(null) }
+    // "Next step: connect GitHub" after joining a project with a repo (set by the join, shown after the banner).
+    var pendingGitHubRepo by remember { mutableStateOf<String?>(null) }
+    var gitHubPromptRepo by remember { mutableStateOf<String?>(null) }
     val navigator = remember(backStack) {
         ProjectsNavigator(
             push = backStack::push,
             pop = { backStack.pop() },
+            onJoined = { status, connectGitHubRepo ->
+                joinNotice = status
+                pendingGitHubRepo = connectGitHubRepo
+                backStack.popToRoot()
+            },
             openProject = { project ->
                 seeds[project.id] = project
                 backStack.push(ProjectsRoute.Detail(project.id))
@@ -92,13 +125,61 @@ fun ProjectsTabRoot(modifier: Modifier = Modifier) {
                 }
             }
         }
+
+        AnimatedVisibility(
+            visible = joinNotice != null,
+            enter = slideInVertically { -it } + fadeIn(),
+            exit = slideOutVertically { -it } + fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            // Keep showing the last status while the exit animation runs.
+            var shown by remember { mutableStateOf(MembershipStatus.In) }
+            joinNotice?.let { shown = it }
+            JoinedCard(
+                shown,
+                Modifier.widthIn(max = 520.dp)
+                    .shadow(12.dp, RoundedCornerShape(24.dp))
+                    .clickable { joinNotice = null },
+            )
+        }
+    }
+    LaunchedEffect(joinNotice) {
+        if (joinNotice != null) {
+            delay(3_000)
+            joinNotice = null
+        }
+    }
+    LaunchedEffect(pendingGitHubRepo) {
+        val repo = pendingGitHubRepo ?: return@LaunchedEffect
+        delay(JoinGitHubPromptDelayMs) // let the pop-to-home and the join banner land first
+        gitHubPromptRepo = repo
+        pendingGitHubRepo = null
+    }
+    gitHubPromptRepo?.let { repo ->
+        ConnectGitHubPrompt(
+            onConnected = { gitHubPromptRepo = null },
+            onDismiss = { gitHubPromptRepo = null },
+            repoFullName = repo,
+            why = GitHubJoinPromptWhy,
+            dismissLabel = "Later",
+        )
     }
 }
+
+/** Delay between the join confirmation and the "connect GitHub" prompt (mobile and desktop). */
+internal const val JoinGitHubPromptDelayMs = 700L
 
 /** Navigation intents screens may trigger. */
 internal class ProjectsNavigator(
     val push: (ProjectsRoute) -> Unit,
     val pop: () -> Unit,
+    /**
+     * After "I'm In" / "Request" succeeds: return to Projects home so the user isn't left on the detail.
+     * The second value is [JoinState.Joined.connectGitHubRepo] (non-null = prompt to connect GitHub next).
+     */
+    val onJoined: (MembershipStatus, String?) -> Unit,
     val openProject: (Project) -> Unit,
 )
 
@@ -112,7 +193,11 @@ private fun depthOf(route: ProjectsRoute?, backStack: ProjectsBackStack): Int {
 @Composable
 private fun HomeDestination(navigator: ProjectsNavigator) {
     val graph = AppGraph.current
-    val vm = viewModel { ProjectsHomeViewModel(graph.projectRepository, graph.inquiryRepository, graph.session.state) }
+    val vm = viewModel {
+        ProjectsHomeViewModel(graph.projectRepository, graph.inquiryRepository, graph.session.state, graph.notificationRepository)
+    }
+    // Home re-enters composition when the user pops back (e.g. from Notifications): re-check the bell badge.
+    LaunchedEffect(vm) { vm.refreshUnread() }
     val state by vm.state.collectAsStateWithLifecycle()
     ProjectsHomeScreen(
         state = state,
@@ -142,10 +227,15 @@ private fun Destination(route: ProjectsRoute, navigator: ProjectsNavigator, seed
         }
         is ProjectsRoute.Detail -> {
             val vm = viewModel {
-                ProjectDetailViewModel(route.projectId, graph.projectRepository, graph.session.state, seeds[route.projectId])
+                ProjectDetailViewModel(
+                    route.projectId, graph.projectRepository, graph.session.state, seeds[route.projectId],
+                    isGitHubConnected = { graph.gitHubRepository.account.value != null },
+                )
             }
             val state by vm.state.collectAsStateWithLifecycle()
             ProjectDetailScreen(state, onBack = navigator.pop, onRetry = vm::refresh, onJoin = vm::join)
+            val join = state.join
+            LaunchedEffect(join) { if (join is JoinState.Joined) navigator.onJoined(join.status, join.connectGitHubRepo) }
         }
         ProjectsRoute.RequestProject -> {
             val vm = viewModel { InquiryFormViewModel(graph.inquiryRepository, graph.session.state) }
@@ -169,6 +259,11 @@ private fun Destination(route: ProjectsRoute, navigator: ProjectsNavigator, seed
                 )
             }
             InquiryFormScreen(state, actions, onBack = navigator.pop)
+        }
+        ProjectsRoute.Notifications -> {
+            val vm = viewModel { NotificationsViewModel(graph.notificationRepository) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            NotificationsScreen(state, onRefresh = vm::refresh, onBack = navigator.pop, onOpen = { vm.markRead(it.id) })
         }
     }
 }

@@ -7,6 +7,7 @@ import com.vesper.baubuild.core.model.ScoreTier
 import com.vesper.baubuild.core.model.User
 import com.vesper.baubuild.core.session.SessionState
 import com.vesper.baubuild.core.session.SessionStore
+import com.vesper.baubuild.data.github.GitHubAccount
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,7 +23,18 @@ data class ProfileUiState(
     val signOutError: String? = null,
     /** In-tab navigation: Become a Lead pushed on top of Profile. */
     val showingLead: Boolean = false,
+    /** In-tab navigation: Edit Profile pushed on top of Profile. */
+    val editingProfile: Boolean = false,
+    /** Bumped on each open so Edit Profile starts from a fresh form. */
+    val editSession: Int = 0,
+    /** In-tab navigation: Connect GitHub pushed on top of Profile (or of Edit Profile, via "Manage"). */
+    val showingGitHub: Boolean = false,
+    /** The connected GitHub account (token in secure storage), or null. */
+    val gitHubAccount: GitHubAccount? = null,
 ) {
+    /** GitHub login to show: the connected account, else the username saved on the profile. */
+    val gitHubLogin: String?
+        get() = gitHubAccount?.login ?: user?.githubUsername?.trim()?.removePrefix("@")?.takeIf { it.isNotEmpty() }
     val score: Int get() = (user?.score ?: 0).coerceIn(0, ScoreTier.MAX_SCORE)
     val tier: ScoreTier get() = ScoreTier.of(score)
     /** Students (not yet Leads, not staff) see the "Become a Lead" entry. */
@@ -33,16 +45,31 @@ class ProfileViewModel(
     private val session: SessionStore,
     /** Revokes the backend token (best effort) then clears the local session. */
     private val performSignOut: suspend () -> Unit = { session.signOut() },
+    /** [com.vesper.baubuild.data.github.GitHubRepository.account]. */
+    private val gitHubAccount: StateFlow<GitHubAccount?> = MutableStateFlow(null),
 ) : ViewModel() {
     private val local = MutableStateFlow(ProfileUiState())
 
-    val state: StateFlow<ProfileUiState> = combine(session.state, local) { s, l ->
-        l.copy(user = (s as? SessionState.SignedIn)?.user)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, local.value.copy(user = (session.state.value as? SessionState.SignedIn)?.user))
+    val state: StateFlow<ProfileUiState> = combine(session.state, local, gitHubAccount) { s, l, gh ->
+        l.copy(user = (s as? SessionState.SignedIn)?.user, gitHubAccount = gh)
+    }.stateIn(
+        viewModelScope, SharingStarted.Eagerly,
+        local.value.copy(user = (session.state.value as? SessionState.SignedIn)?.user, gitHubAccount = gitHubAccount.value),
+    )
 
     fun openBecomeLead() { local.value = local.value.copy(showingLead = true) }
 
     fun closeBecomeLead() { local.value = local.value.copy(showingLead = false) }
+
+    fun openEditProfile() {
+        local.value = local.value.copy(editingProfile = true, editSession = local.value.editSession + 1)
+    }
+
+    fun closeEditProfile() { local.value = local.value.copy(editingProfile = false) }
+
+    fun openGitHub() { local.value = local.value.copy(showingGitHub = true) }
+
+    fun closeGitHub() { local.value = local.value.copy(showingGitHub = false) }
 
     fun signOut() {
         if (local.value.signingOut) return
@@ -50,7 +77,7 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 performSignOut()
-                local.value = local.value.copy(signingOut = false, showingLead = false)
+                local.value = local.value.copy(signingOut = false, showingLead = false, editingProfile = false, showingGitHub = false)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {

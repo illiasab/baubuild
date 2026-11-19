@@ -6,6 +6,11 @@
 > `com.vesper.baubuild://auth` and `http://127.0.0.1` under "Mobile and desktop applications", "Allow public client
 > flows" on, `MICROSOFT_CLIENT_ID` set on the server, **no client secret** (public clients). Also: `GET /healthz`
 > currently answers `401 unauthorized` — health checks must be public for load balancers (zero-downtime deploys).
+> **Go server bug:** `Identify` in `server/go/domain.go` returns `503 microsoft_not_configured` in **both** branches —
+> even with `MICROSOFT_CLIENT_ID` set it never redeems the code. Implement: POST
+> `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token` (`client_id`, `grant_type=authorization_code`, `code`,
+> `code_verifier`, `redirect_uri`, scope `openid profile email offline_access User.Read`, **no client secret**), then
+> Graph `GET /me` (`mail` / `userPrincipalName`, `displayName`) → apply the domain rule.
 
 Everything the apps (iOS, Android, macOS, Windows, Linux) need from the backend. Built on the current API
 (`docs/openapi.json`, `docs/index.html`); items marked **✅ exists** are already there, **🆕** are new, **✏️** change
@@ -237,3 +242,15 @@ device registration for push. The app will adopt these next.
   them — see §3); bounty limited to 0–500.
 - **Home** (`/v1/home`) cards don't include the viewer's membership, so joined projects can't be hidden there.
 - **Security**: the current server stores `github_token` in plain text — must be encrypted at rest (§4).
+
+## 9. Found in the Go server (2026-11-19)
+
+- **Sign-in stub**: see the blocking note at the top (`Identify` never redeems the Microsoft code).
+- **GitHub token route missing**: the app calls `PUT /v1/integrations/github/token` (§4, `docs/BACKEND_GITHUB_TOKEN.md`);
+  the Go server only has the OAuth connect → callback flow. Add the token route (the app keeps working and retries until
+  it exists). `features.github` in `/v1/config` is `false` today; the app skips linking while it's false.
+- **Mentor AI**: `GET/POST /v1/projects/{id}/mentor/messages` exists (POST `{text}` ≤ 500 chars → SSE `delta` … `done`)
+  but isn't in `docs/openapi.json` — document it and the app will wire the chat.
+- **Notifications**: returns at most 21 items and ignores `cursor` — implement paging.
+- **Not yet in the server**: `GET /v1/senior-engineers`, `GET /v1/world-projects` (app hides those sections on 404).
+- **`/healthz`** must be public (currently 401).
