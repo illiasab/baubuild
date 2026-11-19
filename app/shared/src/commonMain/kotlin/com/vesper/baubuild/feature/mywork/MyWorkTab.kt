@@ -43,6 +43,7 @@ import com.vesper.baubuild.feature.code.CodeScreen
 import com.vesper.baubuild.feature.code.CodeSessionViewModel
 import com.vesper.baubuild.feature.mywork.task.TaskDetailScreen
 import com.vesper.baubuild.feature.mywork.task.TaskDetailViewModel
+import com.vesper.baubuild.feature.mywork.mentor.MentorChatViewModel
 import com.vesper.baubuild.feature.mywork.workspace.MentorAiScreen
 import com.vesper.baubuild.feature.mywork.workspace.WorkspaceScreen
 import com.vesper.baubuild.feature.mywork.workspace.WorkspaceViewModel
@@ -50,7 +51,7 @@ import com.vesper.baubuild.feature.mywork.workspace.WorkspaceViewModel
 /**
  * Entry point for this feature. Hosted by the Compose tab shell and by the native iOS TabView.
  *
- * Navigation: My Work list → project workspace → task detail (→ code workspace) / Mentor AI (stub). The back stack is saveable and system
+ * Navigation: My Work list → project workspace → task detail (→ code workspace) / Mentor AI. The back stack is saveable and system
  * back (Android back, iOS edge-swipe, desktop Esc) pops it via [BackHandler].
  */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -88,7 +89,7 @@ fun MyWorkTabRoot(modifier: Modifier = Modifier) {
                                 )
                             },
                             onBack = { backStack.pop() },
-                            onAskMentor = { backStack.push(MyWorkRoute.MentorAi(route.projectId)) },
+                            onAskMentor = { backStack.push(MyWorkRoute.MentorAi(route.projectId, route.taskId)) },
                             onOpenCode = { backStack.push(MyWorkRoute.Code(route.projectId, route.taskId)) },
                         )
                         is MyWorkRoute.Code -> CodeScreen(
@@ -100,7 +101,15 @@ fun MyWorkTabRoot(modifier: Modifier = Modifier) {
                             },
                             onBack = { backStack.pop() },
                         )
-                        is MyWorkRoute.MentorAi -> MentorAiScreen(route.projectId, onBack = { backStack.pop() })
+                        is MyWorkRoute.MentorAi -> MentorAiScreen(
+                            viewModel = viewModel(key = route.key) {
+                                val work = AppGraph.current.workRepository
+                                MentorChatViewModel(AppGraph.current.mentorRepository, route.projectId, initialTaskId = route.taskId) { taskId ->
+                                    work.workspace(route.projectId).tasks.firstOrNull { it.id == taskId }?.title
+                                }
+                            },
+                            onBack = { backStack.pop() },
+                        )
                     }
                 }
             }

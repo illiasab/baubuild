@@ -61,6 +61,7 @@ import com.vesper.baubuild.designsystem.DisplayFamily
 import com.vesper.baubuild.designsystem.LoadStateContent
 import com.vesper.baubuild.designsystem.MonoFamily
 import com.vesper.baubuild.di.AppGraph
+import com.vesper.baubuild.feature.mywork.mentor.MentorChatViewModel
 import com.vesper.baubuild.feature.mywork.components.EmptyMessage
 import com.vesper.baubuild.feature.mywork.workspace.WorkspaceSegment
 import com.vesper.baubuild.feature.mywork.workspace.WorkspaceViewModel
@@ -88,7 +89,7 @@ internal fun PortalWorkspacePage(
     val repo = AppGraph.current.workRepository
     val workspaceVm = viewModel { WorkspaceViewModel(repo, projectId) }
     val reviewVm = viewModel { ReviewViewModel(repo) }
-    val mentorVm = viewModel { MentorChatViewModel(projectId) }
+    val mentorVm = viewModel { MentorChatViewModel(AppGraph.current.mentorRepository, projectId) }
 
     val state by workspaceVm.state.collectAsStateWithLifecycle()
     val reviewState by reviewVm.state.collectAsStateWithLifecycle()
@@ -175,6 +176,7 @@ internal fun PortalWorkspacePage(
             taskId = openTaskId,
             onClose = closeTask,
             onAskMentor = {
+                openTaskId?.let { id -> mentorVm.setTaskContext(id, loaded?.tasks?.firstOrNull { it.id == id }?.title) }
                 closeTask()
                 mentorFocusRequests++
             },

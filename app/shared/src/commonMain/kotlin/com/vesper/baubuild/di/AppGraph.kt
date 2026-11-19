@@ -51,6 +51,7 @@ class AppGraph(
     val workRepository: WorkRepository by lazy { HttpWorkRepository(httpClient, projects = projectRepository) }
     val notificationRepository: NotificationRepository by lazy { HttpNotificationRepository(httpClient) }
     val staffRepository: StaffRepository by lazy { HttpStaffRepository(httpClient) }
+    val mentorRepository: MentorRepository by lazy { com.vesper.baubuild.data.http.student.HttpMentorRepository(httpClient) }
 
     /**
      * Student's GitHub (in-app code workspace, GitHub API with the student's token). Also links the token with the

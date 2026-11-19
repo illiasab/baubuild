@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -12,9 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,27 +36,39 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vesper.baubuild.designsystem.BauColors
+import com.vesper.baubuild.designsystem.BauTextLink
 import com.vesper.baubuild.designsystem.MonoFamily
+import com.vesper.baubuild.data.repository.MentorRole
+import com.vesper.baubuild.feature.mywork.mentor.MentorBubble
+import com.vesper.baubuild.feature.mywork.mentor.MentorChatViewModel
+import com.vesper.baubuild.feature.mywork.mentor.MentorRichText
+import com.vesper.baubuild.feature.mywork.mentor.MentorTextColors
+import com.vesper.baubuild.feature.mywork.mentor.mentorSpokenText
 
 private val BubbleShape = RoundedCornerShape(10.dp)
 private val BubbleText = TextStyle(fontSize = 14.sp, lineHeight = 1.55.em)
+private val SmallText = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
 
-// TODO(mentor-ai): the backend lists GET/POST /v1/projects/{id}/mentor/messages (SSE) but doesn't document the
-//  shapes yet; until it's wired the chat starts empty with this intro and replies with PLACEHOLDER_REPLY.
-private const val MENTOR_INTRO =
-    "Mentor AI is coming soon. You’ll be able to ask about this project’s tasks, your branch, and review feedback here."
+private const val MENTOR_INTRO = "Ask about your task. The mentor gives hints and questions, not the full solution."
 
-/** Dark Mentor AI panel from the portal workspace design. Enter sends, Shift+Enter inserts a newline. */
+private val MentorColors = MentorTextColors(
+    text = PortalColors.MentorText,
+    inlineCode = BauColors.BlueMist,
+    codeText = PortalColors.MentorText,
+    codeBackground = PortalColors.MentorInput,
+)
+
+/**
+ * Dark Mentor AI panel from the portal workspace design, on the shared [MentorChatViewModel] (same as the mobile
+ * Mentor screen). Enter sends, Shift+Enter inserts a newline.
+ */
 @Composable
 internal fun MentorPanel(
     viewModel: MentorChatViewModel,
@@ -67,13 +77,13 @@ internal fun MentorPanel(
     inputFocusRequester: FocusRequester? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var draft by rememberSaveable(viewModel.projectId) { mutableStateOf("") }
-    val canSend = !state.isReplying && draft.isNotBlank()
-    val submit = { if (viewModel.send(draft)) draft = "" }
+    val canSend = state.canSend
+    val submit = { viewModel.send(); Unit }
 
     val chatScroll = rememberScrollState()
-    LaunchedEffect(state.messages.size, state.isReplying) {
-        withFrameNanos { } // wait for the new bubble to be measured
+    val last = state.messages.lastOrNull()
+    LaunchedEffect(state.messages.size, last?.text?.length, last?.status) {
+        withFrameNanos { } // wait for the new bubble / text to be measured
         chatScroll.scrollTo(chatScroll.maxValue)
     }
 
@@ -91,20 +101,35 @@ internal fun MentorPanel(
             Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(chatScroll).semantics { liveRegion = LiveRegionMode.Polite },
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (state.messages.isEmpty()) {
-                Text(MENTOR_INTRO, style = BubbleText, color = PortalColors.MentorMuted)
+            when {
+                state.isLoadingHistory && state.messages.isEmpty() ->
+                    Text("Loading earlier messages…", style = SmallText, color = PortalColors.MentorMuted)
+                state.historyError != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.historyError.orEmpty(), style = SmallText, color = PortalColors.MentorMuted, modifier = Modifier.weight(1f, fill = false))
+                    BauTextLink("Try again", onClick = viewModel::loadHistory, color = BauColors.Yellow, fontSize = 13.sp, modifier = Modifier.pointerHoverIcon(PointerIcon.Hand))
+                }
+                state.messages.isEmpty() -> Text(MENTOR_INTRO, style = BubbleText, color = PortalColors.MentorMuted)
             }
-            state.messages.forEach { MessageBubble(it) }
-            if (state.isReplying) {
-                Text("Mentor is typing…", style = TextStyle(fontSize = 13.sp), color = PortalColors.MentorMuted)
-            }
+            state.messages.forEach { MessageBubble(it, onRetry = viewModel::retry) }
         }
 
-        Text("Ask the mentor", style = TextStyle(fontSize = 13.sp), color = PortalColors.MentorMuted)
+        state.taskContext?.let { context ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Asking about: ${context.title ?: "this task"}",
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = SmallText,
+                    color = PortalColors.MentorMuted,
+                    maxLines = 1,
+                )
+                BauTextLink("Clear", onClick = viewModel::clearTaskContext, color = BauColors.BlueMist, fontSize = 13.sp, modifier = Modifier.pointerHoverIcon(PointerIcon.Hand))
+            }
+        }
+        Text("Ask the mentor", style = SmallText, color = PortalColors.MentorMuted)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
             BasicTextField(
-                value = draft,
-                onValueChange = { draft = it },
+                value = state.draft,
+                onValueChange = viewModel::onDraftChange,
                 modifier = Modifier
                     .weight(1f)
                     .then(if (inputFocusRequester != null) Modifier.focusRequester(inputFocusRequester) else Modifier)
@@ -132,54 +157,96 @@ internal fun MentorPanel(
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        if (draft.isEmpty()) Text("I’m stuck on…", style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = BauColors.TextTertiary)
+                        if (state.draft.isEmpty()) Text("I’m stuck on…", style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), color = BauColors.TextTertiary)
                         inner()
                     }
                 },
             )
-            Box(
-                Modifier
-                    .heightIn(min = 44.dp)
-                    .alpha(if (canSend) 1f else 0.6f)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(BauColors.Yellow)
-                    .clickable(enabled = canSend, role = Role.Button, onClick = submit)
-                    .then(if (canSend) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Send", style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold), color = BauColors.Ink)
+            if (state.isStreaming) {
+                PanelButton("Stop", enabled = true, onClick = viewModel::stop, container = PortalColors.MentorInputBorder, content = Color.White)
+            } else {
+                PanelButton("Send", enabled = canSend, onClick = submit, container = BauColors.Yellow, content = BauColors.Ink)
             }
+        }
+        state.counter?.let {
+            Text(
+                it,
+                modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+                style = TextStyle(fontFamily = MonoFamily, fontSize = 12.sp),
+                color = if (state.draft.length >= state.maxLength) BauColors.Orange else PortalColors.MentorMuted,
+            )
         }
     }
 }
 
 @Composable
-private fun MessageBubble(message: MentorMessage) {
-    val text = buildAnnotatedString {
-        mentorSegments(message.text).forEach { (segment, isCode) ->
-            if (isCode) withStyle(SpanStyle(fontFamily = MonoFamily, fontSize = 13.sp, color = BauColors.BlueMist)) { append(segment) }
-            else append(segment)
-        }
+private fun PanelButton(text: String, enabled: Boolean, onClick: () -> Unit, container: Color, content: Color) {
+    Box(
+        Modifier
+            .heightIn(min = 44.dp)
+            .alpha(if (enabled) 1f else 0.6f)
+            .clip(RoundedCornerShape(6.dp))
+            .background(container)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold), color = content)
     }
-    when (message.author) {
-        MentorAuthor.Mentor -> Text(
-            text,
-            modifier = Modifier
+}
+
+@Composable
+private fun MessageBubble(message: MentorBubble, onRetry: () -> Unit) {
+    when (message.role) {
+        MentorRole.Assistant -> Column(
+            Modifier
                 .fillMaxWidth()
                 .clip(BubbleShape)
                 .background(PortalColors.MentorBubble)
-                .border(1.dp, PortalColors.MentorBorder, BubbleShape)
-                .padding(14.dp)
-                .semantics { contentDescription = "Mentor: ${message.text.replace("`", "")}" },
-            style = BubbleText,
-            color = PortalColors.MentorText,
-        )
-        MentorAuthor.Me -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                .border(1.dp, if (message.isError) BauColors.Orange else PortalColors.MentorBorder, BubbleShape)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val status = message.status
+            if (message.text.isEmpty() && status != null) {
+                Text(status, style = SmallText, color = PortalColors.MentorMuted, modifier = Modifier.semantics { contentDescription = "Mentor: $status" })
+            } else if (message.isError) {
+                Text(message.text, style = BubbleText, color = PortalColors.MentorText)
+                if (message.canRetry) {
+                    BauTextLink("Try again", onClick = onRetry, color = BauColors.Yellow, fontSize = 14.sp, modifier = Modifier.pointerHoverIcon(PointerIcon.Hand))
+                }
+            } else {
+                MentorRichText(
+                    message.text + if (message.isStreaming) " ▍" else "",
+                    MentorColors,
+                    BubbleText,
+                    Modifier.semantics { contentDescription = "Mentor: ${mentorSpokenText(message.text)}" },
+                )
+            }
+            if (message.citations.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    message.citations.forEach { c ->
+                        Text(
+                            c.label,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .border(1.dp, PortalColors.MentorInputBorder, RoundedCornerShape(999.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .semantics { contentDescription = "Source: ${c.title}" },
+                            style = TextStyle(fontFamily = MonoFamily, fontSize = 11.sp),
+                            color = BauColors.BlueMist,
+                        )
+                    }
+                }
+            }
+        }
+        MentorRole.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             Box(Modifier.fillMaxWidth(0.85f), contentAlignment = Alignment.CenterEnd) {
                 Text(
-                    text,
+                    message.text,
                     modifier = Modifier
+                        .alpha(if (message.failed) 0.7f else 1f)
                         .clip(BubbleShape)
                         .background(BauColors.BlueDeep)
                         .padding(14.dp)

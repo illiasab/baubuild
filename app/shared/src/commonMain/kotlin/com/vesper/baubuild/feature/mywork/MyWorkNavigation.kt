@@ -20,8 +20,9 @@ sealed interface MyWorkRoute {
         override val key get() = "workspace/$projectId"
     }
 
-    data class MentorAi(val projectId: String) : MyWorkRoute {
-        override val key get() = "mentor/$projectId"
+    /** Mentor AI chat; [taskId] when opened from a task's "Ask Mentor AI" (sent as the question's context). */
+    data class MentorAi(val projectId: String, val taskId: String? = null) : MyWorkRoute {
+        override val key get() = if (taskId == null) "mentor/$projectId" else "mentor/$projectId/$taskId"
     }
 
     /** Task detail, pushed from the workspace's "My Tasks" list. */
@@ -40,6 +41,11 @@ sealed interface MyWorkRoute {
                 val parts = key.split('/')
                 if (parts.size != 3 || parts[1].isEmpty() || parts[2].isEmpty()) return null
                 return Code(parts[1], parts[2])
+            }
+            if (key.startsWith("mentor/") && key.count { it == '/' } == 2) {
+                val parts = key.split('/')
+                if (parts[1].isEmpty() || parts[2].isEmpty()) return null
+                return MentorAi(parts[1], parts[2])
             }
             if (key.startsWith("task/")) {
                 val parts = key.split('/')
