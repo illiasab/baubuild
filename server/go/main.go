@@ -29,5 +29,6 @@ func main() {
 	if root == "" {
 		root = "."
 	}
+	go seedGitHub(db)
 	log.Fatal(http.ListenAndServe(host+":"+port, newSite(&app{db: db}, root)))
 }

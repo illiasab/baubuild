@@ -17,6 +17,7 @@ type apiError struct {
 	Status  int
 	Code    string
 	Message string
+	Extra   map[string]any
 }
 
 func (e *apiError) Error() string { return e.Message }
@@ -441,7 +442,8 @@ func configDoc() map[string]any {
 	return map[string]any{
 		"min_supported": min,
 		"features": map[string]any{
-			"billing": false, "mentor": true, "github": os.Getenv("GITHUB_CLIENT_ID") != "", "push": true,
+			"billing": false, "mentor": true, "mentor_chat": true, "mentor_reviews": true, "mentor_kickoff": true,
+			"github": os.Getenv("GITHUB_CLIENT_ID") != "", "push": true,
 		},
 		"maintenance": maint,
 	}
@@ -962,7 +964,7 @@ func submissionDetail(tx *sql.Tx, row map[string]any) (map[string]any, error) {
 		"id": row["id"], "project_id": row["project_id"], "diff_url": row["diff_url"], "created_at": row["created_at"],
 		"steps": []any{
 			map[string]any{"step": "pushed", "branch": row["branch"]},
-			map[string]any{"step": "ai_review", "status": "complete", "findings": findings},
+			map[string]any{"step": "ai_review", "status": "complete", "findings": findings, "ai_review": latestReview(tx, str(row, "project_id"), str(row, "user_id"))},
 			map[string]any{"step": "lead_decision", "status": row["lead_status"], "reviewer": reviewer, "comment": comment},
 			map[string]any{"step": "bounty", "amount": num(row, "bounty_amount"), "paid_at": row["paid_at"]},
 		},
@@ -1212,11 +1214,11 @@ func confirmInPerson(tx *sql.Tx, admin map[string]any, userID string) (map[strin
 	return map[string]any{"role": user["role"], "application": app}, nil
 }
 
-func mentorReply(text string, project map[string]any, history []map[string]any) string {
-	if reply, ok := mentorAI(text, project, history); ok {
-		return reply
+func mentorReply(text string, project map[string]any, history []map[string]any, citations []map[string]any, hintLevel int, context any) (string, string) {
+	if reply, model, ok := mentorAI(text, project, history, citations, hintLevel, context); ok {
+		return guardMentor(reply), model
 	}
-	return mentorScript(text)
+	return mentorScript(text), ""
 }
 
 func mentorScript(text string) string {
@@ -1235,35 +1237,46 @@ func mentorScript(text string) string {
 	}
 }
 
-func postMentor(tx *sql.Tx, user map[string]any, projectID, text string) (string, string, error) {
+func postMentor(tx *sql.Tx, user map[string]any, projectID string, body map[string]any) (string, string, []map[string]any, error) {
 	if err := requireMember(tx, user, projectID); err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	text = strings.TrimSpace(text)
-	if text == "" || len(text) > 500 {
-		return "", "", fail(400, "invalid_body", "Ask a question of 1 to 500 characters.")
+	text := strings.TrimSpace(asString(body["text"]))
+	if text == "" || len([]rune(text)) > 4000 {
+		return "", "", nil, fail(400, "invalid_body", "Ask a question of 1 to 4000 characters.")
+	}
+	if err := mentorQuota(tx, str(user, "id")); err != nil {
+		return "", "", nil, err
 	}
 	project, err := one(tx, `SELECT * FROM projects WHERE id = ?`, projectID)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
+	taskID := strings.TrimSpace(asString(body["task_id"]))
 	history, err := many(tx, `SELECT role, body FROM mentor_messages WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 8`, projectID, str(user, "id"))
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
 		history[i], history[j] = history[j], history[i]
 	}
+	hints, err := one(tx, `SELECT COUNT(*) AS n FROM mentor_messages WHERE project_id = ? AND user_id = ? AND role = 'mentor'`, projectID, str(user, "id"))
+	if err != nil {
+		return "", "", nil, err
+	}
+	citations := kbCitations(tx, user, text, project)
+	reply, model := mentorReply(text, project, history, citations, num(hints, "n")+1, body["context"])
+	rawCitations, _ := json.Marshal(citations)
 	moment := nowISO()
-	reply := mentorReply(text, project, history)
 	studentID, replyID := newID(), newID()
-	if _, err := tx.Exec(`INSERT INTO mentor_messages (id, project_id, user_id, role, body, created_at) VALUES (?, ?, ?, 'student', ?, ?)`, studentID, projectID, str(user, "id"), text, moment); err != nil {
-		return "", "", err
+	if _, err := tx.Exec(`INSERT INTO mentor_messages (id, project_id, user_id, role, body, created_at, task_id, citations, model) VALUES (?, ?, ?, 'student', ?, ?, ?, '[]', '')`, studentID, projectID, str(user, "id"), text, moment, taskID); err != nil {
+		return "", "", nil, err
 	}
-	if _, err := tx.Exec(`INSERT INTO mentor_messages (id, project_id, user_id, role, body, created_at) VALUES (?, ?, ?, 'mentor', ?, ?)`, replyID, projectID, str(user, "id"), reply, moment); err != nil {
-		return "", "", err
+	if _, err := tx.Exec(`INSERT INTO mentor_messages (id, project_id, user_id, role, body, created_at, task_id, citations, model) VALUES (?, ?, ?, 'mentor', ?, ?, ?, ?, ?)`, replyID, projectID, str(user, "id"), reply, moment, taskID, string(rawCitations), model); err != nil {
+		return "", "", nil, err
 	}
-	return replyID, reply, nil
+	_, _ = tx.Exec(`INSERT INTO mentor_audit (id, user_id, kind, model, kb_versions, created_at) VALUES (?, ?, 'chat', ?, ?, ?)`, newID(), str(user, "id"), model, string(rawCitations), moment)
+	return replyID, reply, citations, nil
 }
 
 func updateMe(tx *sql.Tx, user map[string]any, body map[string]any) (map[string]any, error) {

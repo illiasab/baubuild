@@ -322,7 +322,8 @@ func mentorPortal(state map[string]any, projectID, text string) map[string]any {
 		state["messages"] = messages
 	}
 	thread := plist(messages[projectID])
-	thread = append(thread, map[string]any{"role": "student", "text": text}, map[string]any{"role": "mentor", "text": mentorReply(text, nil, nil)})
+	reply, _ := mentorReply(text, nil, nil, nil, 1, nil)
+	thread = append(thread, map[string]any{"role": "student", "text": text}, map[string]any{"role": "mentor", "text": reply})
 	messages[projectID] = thread
 	return map[string]any{"ok": true}
 }

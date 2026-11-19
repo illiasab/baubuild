@@ -189,6 +189,9 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 	id := func(prefix, suffix string) string {
 		return strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
 	}
+	if status, payload, ok, err := mentorRoutes(tx, r, path, user, body); ok {
+		return status, payload, true, err
+	}
 	switch {
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/v1/auth/sessions/"):
 		sessionID := strings.TrimPrefix(path, "/v1/auth/sessions/")
@@ -411,9 +414,27 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 		}
 		items := []any{}
 		for _, row := range rows {
-			items = append(items, map[string]any{"id": row["id"], "role": row["role"], "text": row["body"], "created_at": row["created_at"]})
+			if taskFilter := r.URL.Query().Get("task_id"); taskFilter != "" && str(row, "task_id") != taskFilter {
+				continue
+			}
+			role := str(row, "role")
+			if role == "student" {
+				role = "user"
+			}
+			if role == "mentor" {
+				role = "assistant"
+			}
+			var citations []any
+			_ = json.Unmarshal([]byte(str(row, "citations")), &citations)
+			if citations == nil {
+				citations = []any{}
+			}
+			items = append(items, map[string]any{
+				"id": row["id"], "role": role, "text": row["body"], "task_id": row["task_id"],
+				"citations": citations, "created_at": row["created_at"],
+			})
 		}
-		return 200, map[string]any{"items": items}, true, nil
+		return 200, map[string]any{"items": items, "next_cursor": nil}, true, nil
 	case r.Method == http.MethodGet && path == "/v1/integrations/github":
 		return 200, map[string]any{"connected": user["github_token"] != nil && str(user, "github_token") != "", "login": user["github_login"]}, true, nil
 	case r.Method == http.MethodPost && path == "/v1/integrations/github/connect":

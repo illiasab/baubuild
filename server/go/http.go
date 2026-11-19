@@ -53,7 +53,11 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	status, body, stream, err := a.route(r)
 	if err != nil {
 		if api, ok := err.(*apiError); ok {
-			writeJSON(w, api.Status, map[string]any{"error": map[string]any{"code": api.Code, "message": api.Message}})
+			payload := map[string]any{"code": api.Code, "message": api.Message}
+			for key, value := range api.Extra {
+				payload[key] = value
+			}
+			writeJSON(w, api.Status, map[string]any{"error": payload})
 			return
 		}
 		writeJSON(w, 500, map[string]any{"error": map[string]any{"code": "server_error", "message": "The server could not finish that."}})
@@ -361,27 +365,11 @@ func (a *app) handle(tx *sql.Tx, r *http.Request, path string, user, session map
 		return 200, out, err
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/mentor/messages") && projectSub.MatchString(path):
 		parts := projectSub.FindStringSubmatch(path)
-		replyID, reply, err := postMentor(tx, user, parts[1], asString(body["text"]))
+		replyID, reply, citations, err := postMentor(tx, user, parts[1], body)
 		if err != nil {
 			return 0, nil, err
 		}
-		words := strings.Split(reply, " ")
-		var b strings.Builder
-		for i, word := range words {
-			piece := word
-			if i != len(words)-1 {
-				piece += " "
-			}
-			payload, _ := json.Marshal(map[string]string{"text": piece})
-			b.WriteString("event: delta\ndata: ")
-			b.Write(payload)
-			b.WriteString("\n\n")
-		}
-		done, _ := json.Marshal(map[string]string{"id": replyID, "text": reply})
-		b.WriteString("event: done\ndata: ")
-		b.Write(done)
-		b.WriteString("\n\n")
-		return 200, b.String(), nil
+		return 200, mentorStream(replyID, reply, citations), nil
 	case r.Method == http.MethodGet && path == "/v1/notifications/unread-count":
 		row, err := one(tx, `SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL`, str(user, "id"))
 		return 200, map[string]any{"unread": num(row, "n")}, err
