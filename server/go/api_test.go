@@ -19,6 +19,7 @@ func TestAPI(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	os.Setenv("BAU_ADMIN_EMAILS", "lead.admin@bau.edu")
+	os.Unsetenv("MENTOR_API_KEY")
 	server := httptest.NewServer(&app{db: db})
 	t.Cleanup(server.Close)
 	original := Identify
@@ -243,8 +244,22 @@ func TestAPI(t *testing.T) {
 		t.Fatal(saved)
 	}
 	_, _, stream := authed("POST", "/v1/projects/library/mentor/messages", token, map[string]any{"text": "Are the dates sorted as strings?"})
-	if !bytes.Contains([]byte(stream), []byte("Date objects")) {
+	if !bytes.Contains([]byte(stream), []byte("Date objects")) || !bytes.Contains([]byte(stream), []byte("JS-DATE-001")) {
 		t.Fatal(stream)
+	}
+	taskID := tasks["items"].([]any)[0].(map[string]any)["id"].(string)
+	code, review, _ := authed("POST", "/v1/tasks/"+taskID+"/reviews", token, map[string]any{"ref": "task/dates"})
+	if code != 202 || review["review_id"] == "" {
+		t.Fatalf("review %d %v", code, review)
+	}
+	other := signIn("bea@stu.bau.edu", "Bea Student")
+	if code, _, _ = authed("GET", "/v1/admin/kb/search?q=date", other["access_token"].(string), nil); code != 403 {
+		t.Fatalf("student search %d", code)
+	}
+	var hits map[string]any
+	code, hits, _ = authed("GET", "/v1/admin/kb/search?q=date", admin["access_token"].(string), nil)
+	if code != 200 || !bytes.Contains([]byte(mustJSON(hits)), []byte("JS-DATE-001")) {
+		t.Fatalf("kb search %d %v", code, hits)
 	}
 	_, notes, _ := authed("GET", "/v1/notifications", token, nil)
 	if len(notes["items"].([]any)[0].(map[string]any)["text"].(string)) < 1 {

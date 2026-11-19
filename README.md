@@ -10,7 +10,7 @@ go test ./...
 PORT=8080 go run .
 ```
 
-The mentor calls Gemini when `MENTOR_API_KEY` is set. `MENTOR_BASE_URL` is the OpenAI-compatible base, and `MENTOR_MODEL` selects the model. Without a key, the mentor uses its built-in replies.
+The mentor calls Gemini when `MENTOR_API_KEY` is set. `MENTOR_BASE_URL` is the OpenAI-compatible base, and `MENTOR_MODEL` selects the model. Without a key, the mentor uses its built-in replies. `GITHUB_SEED_TOKEN` loads reference code into the staff-only knowledge base. The token is not stored in git.
 
 ## Kotlin Multiplatform app
 
