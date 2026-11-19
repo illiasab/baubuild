@@ -1,10 +1,11 @@
 # BAU BUILD — backend requirements (API v1, Go)
 
-> **Blocking right now (checked 2026-11-19):** `https://api.vesperconnect.org/healthz` answers `ok`, but every
-> `/v1/...` route (e.g. `GET /v1/config`, `POST /v1/auth/microsoft/exchange`) returns **404** — the documented API
-> isn't deployed there. Real sign-in also needs the Entra app registration: client ID + tenant ID shared with the
-> app team, redirect URIs `com.vesper.baubuild://auth` and `http://127.0.0.1` under "Mobile and desktop
-> applications", "Allow public client flows" on, `MICROSOFT_CLIENT_ID` set on the server, **no client secret**.
+> **Blocking right now (checked 2026-11-19, `https://api.baubuild.vesperconnect.org`):** the Go API is live
+> (`GET /v1/config` → 200), but `POST /v1/auth/microsoft/exchange` → **503 `microsoft_not_configured`**. Real sign-in
+> needs the Entra app registration: client ID + tenant ID shared with the app team, redirect URIs
+> `com.vesper.baubuild://auth` and `http://127.0.0.1` under "Mobile and desktop applications", "Allow public client
+> flows" on, `MICROSOFT_CLIENT_ID` set on the server, **no client secret** (public clients). Also: `GET /healthz`
+> currently answers `401 unauthorized` — health checks must be public for load balancers (zero-downtime deploys).
 
 Everything the apps (iOS, Android, macOS, Windows, Linux) need from the backend. Built on the current API
 (`docs/openapi.json`, `docs/index.html`); items marked **✅ exists** are already there, **🆕** are new, **✏️** change
