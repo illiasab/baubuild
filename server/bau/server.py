@@ -11,10 +11,11 @@ from urllib.parse import urlparse
 
 import logic
 
-ROOT = Path(__file__).resolve().parent
-STATIC = ROOT / "static"
-DOCS = ROOT / "docs"
-STORE = ROOT / "data" / "store.json"
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+STATIC = REPO / "static"
+DOCS = REPO / "docs"
+STORE = HERE / "data" / "store.json"
 LOCK = threading.Lock()
 STATE = logic.default_state()
 

@@ -4,7 +4,7 @@
 
 Web portal for the [BAU BUILD design](https://baybuild.vercel.app/): the project board, join and request rules, My Work, the project workspace, review status, and the profile score.
 
-The rules live in `logic.py`. The browser only displays the state that module returns.
+The backend lives in `server/bau`. The rules live in `server/bau/logic.py`. The browser only displays the state that module returns.
 
 ### Rules
 
@@ -20,11 +20,12 @@ The rules live in `logic.py`. The browser only displays the state that module re
 ### Run
 
 ```bash
-python3 -m unittest test_logic.py
+cd server/bau
+python3 -m unittest test_logic.py test_api.py
 PORT=8080 python3 server.py
 ```
 
-Open http://127.0.0.1:8080. Progress is stored in `data/store.json`. Profile → Reset demo data restores Sam Carter’s starting board.
+Open http://127.0.0.1:8080. Progress is stored in `server/bau/data/store.json`. Profile → Reset demo data restores Sam Carter’s starting board.
 
 ## Kotlin Multiplatform app
 

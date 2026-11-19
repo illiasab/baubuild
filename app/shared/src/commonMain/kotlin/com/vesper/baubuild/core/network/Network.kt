@@ -12,8 +12,8 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 data class ApiConfig(
-    /** Go backend (modular monolith). Override per build/flavor. */
-    val baseUrl: String = "https://api.baubuild.app/",
+    /** Python API in server/bau, deployed for this project. Override per build/flavor. */
+    val baseUrl: String = "https://baubuild.vesperconnect.org/",
     /** When true the app runs entirely on [com.vesper.baubuild.data.fake] data — used until the backend ships. */
     val useFakeBackend: Boolean = true,
 )
