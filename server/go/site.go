@@ -56,6 +56,22 @@ func (s *site) save() {
 
 func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if path == "/healthz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok")
+		return
+	}
+	if path == "/readyz" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		if err := s.api.db.Ping(); err != nil {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok")
+		return
+	}
 	if s.serveDocs(w, r, path) {
 		return
 	}
