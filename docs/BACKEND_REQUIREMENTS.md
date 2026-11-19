@@ -35,7 +35,8 @@ an existing endpoint. Language-agnostic — written for the Go rewrite.
 Plain email + password accounts, verified with a 6-digit code sent to the email. **Only `@stu.bau.edu` (students) and
 `@bau.edu` (staff) may register and use the app.** All bodies are JSON; errors are `{"error":{"code","message"}}`
 (rate-limit errors also carry `retry_after_s`, inside `error`, plus the `Retry-After` header);
-`device = {platform: ios|macos|android|windows|linux, app_version}`.
+`device = {platform: ios|macos|android|windows|linux|web, app_version}` — **`web` is required**: the web portal at
+`/app` (same origin, `{platform:"web", app_version:"1.0.0"}`) uses these same endpoints.
 Token responses are `{access_token, refresh_token, expires_in, user, entitlement}` (same shape as today's refresh).
 
 | | Endpoint | Contract |

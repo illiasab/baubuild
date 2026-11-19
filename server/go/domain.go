@@ -825,6 +825,14 @@ func createInquiry(tx *sql.Tx, user map[string]any, body map[string]any) (map[st
 	if err != nil {
 		return nil, err
 	}
+	// Any staff member can post: the inquiry goes live as an open project right away (no admin approval).
+	if _, err := publishRow(tx, row); err != nil {
+		return nil, err
+	}
+	row, err = one(tx, `SELECT * FROM inquiries WHERE id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
 	return inquiryPayload(row), nil
 }
 
@@ -842,6 +850,20 @@ func publishInquiry(tx *sql.Tx, user map[string]any, id string) (map[string]any,
 	if str(row, "status") != "approved" {
 		return nil, fail(409, "invalid_state", "Approve the inquiry before publishing it.")
 	}
+	projectID, err := publishRow(tx, row)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := one(tx, `SELECT * FROM inquiries WHERE id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"inquiry": inquiryPayload(updated), "project_id": projectID}, nil
+}
+
+// publishRow turns an inquiry row into an open project and marks the inquiry published.
+func publishRow(tx *sql.Tx, row map[string]any) (string, error) {
+	id := str(row, "id")
 	projectID := newID()
 	reviewer := "dev lead"
 	if str(row, "reviewer_type") == "professor" {
@@ -851,17 +873,13 @@ func publishInquiry(tx *sql.Tx, user map[string]any, id string) (map[string]any,
 		id, department, class_id, title, description, bounty, difficulty, min_score, due_at, urgent, open_to_all,
 		joining, reviewed_by, reviewer_label, repo_provider, repo_name, art_key, status, inquiry_id, template_tasks
 	) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'github', NULL, 'inquiry', 'open', ?, '[]')`,
-		projectID, str(row, "department"), str(row, "title"), str(row, "description"), num(row, "bounty"), str(row, "difficulty"), num(row, "min_score"), row["due_at"], num(row, "is_urgent"), str(row, "joining"), str(row, "reviewer_type"), reviewer, str(row, "id")); err != nil {
-		return nil, err
+		projectID, str(row, "department"), str(row, "title"), str(row, "description"), num(row, "bounty"), str(row, "difficulty"), num(row, "min_score"), row["due_at"], num(row, "is_urgent"), str(row, "joining"), str(row, "reviewer_type"), reviewer, id); err != nil {
+		return "", err
 	}
 	if _, err := tx.Exec(`UPDATE inquiries SET status = 'published', project_id = ? WHERE id = ?`, projectID, id); err != nil {
-		return nil, err
+		return "", err
 	}
-	updated, err := one(tx, `SELECT * FROM inquiries WHERE id = ?`, id)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"inquiry": inquiryPayload(updated), "project_id": projectID}, nil
+	return projectID, nil
 }
 
 func approveInquiry(tx *sql.Tx, user map[string]any, id string) (map[string]any, error) {

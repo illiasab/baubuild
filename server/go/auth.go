@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -61,7 +62,12 @@ func clientIP(r *http.Request) string {
 
 var deliverCode = func(to, subject, body string) error {
 	host := strings.TrimSpace(os.Getenv("SMTP_HOST"))
-	if host == "" || host == "test" {
+	if host == "" {
+		return nil
+	}
+	if host == "test" {
+		// Local development: no mail server, so print the message (with the code) to the server log.
+		log.Printf("[dev mail] to=%s subject=%q body=%q", to, subject, body)
 		return nil
 	}
 	port := strings.TrimSpace(os.Getenv("SMTP_PORT"))
@@ -113,9 +119,9 @@ func deviceOf(body map[string]any) (string, string, error) {
 	}
 	platform := asString(device["platform"])
 	version := strings.TrimSpace(asString(device["app_version"]))
-	allowed := map[string]bool{"ios": true, "macos": true, "android": true, "windows": true, "linux": true}
+	allowed := map[string]bool{"ios": true, "macos": true, "android": true, "windows": true, "linux": true, "web": true}
 	if !allowed[platform] {
-		return "", "", fail(400, "invalid_body", "device.platform must be ios, macos, android, windows, or linux.")
+		return "", "", fail(400, "invalid_body", "device.platform must be ios, macos, android, windows, linux, or web.")
 	}
 	if version == "" || len(version) > 40 {
 		return "", "", fail(400, "invalid_body", "device.app_version is required.")

@@ -197,21 +197,14 @@ func TestAPI(t *testing.T) {
 		"title": "Fix the lab printer", "description": "The queue drops jobs.", "department": "Labs",
 		"difficulty": "easy", "bounty": 18, "is_urgent": false, "min_score": 0, "joining": "everyone", "reviewer_type": "ai_then_lead",
 	})
-	if code != 201 || created["status"] != "submitted" {
+	// Staff posts go live immediately: no admin approval step.
+	if code != 201 || created["status"] != "published" || created["project_id"] == nil {
 		t.Fatalf("inquiry %d %v", code, created)
 	}
 	inquiryID := created["id"].(string)
 	admin = signIn("lead.admin@bau.edu", "Admin User")
 	code, _, _ = authed("POST", "/v1/admin/inquiries/"+inquiryID+"/publish", admin["access_token"].(string), nil)
 	if code != 409 {
-		t.Fatal(code)
-	}
-	_, approved, _ := authed("POST", "/v1/admin/inquiries/"+inquiryID+"/approve", admin["access_token"].(string), nil)
-	if approved["status"] != "approved" {
-		t.Fatal(approved)
-	}
-	code, _, _ = authed("POST", "/v1/admin/inquiries/"+inquiryID+"/publish", admin["access_token"].(string), nil)
-	if code != 201 {
 		t.Fatal(code)
 	}
 	_, found, _ := authed("GET", "/v1/search?q=printer", token, nil)

@@ -33,4 +33,6 @@ jobs:
           $SSH "root@$HOST" "install -d /opt/baybuild/docs"
           scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes "$RUNNER_TEMP/baubuild" "root@$HOST:/opt/baybuild/baubuild.new"
           scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes docs/index.html docs/openapi.json "root@$HOST:/opt/baybuild/docs/"
+          # Web (landing + /app portal), served from $BAU_ROOT/static; swapped in as a whole directory.
+          tar -C static -czf - . | $SSH "root@$HOST" "rm -rf /opt/baybuild/static.new && install -d /opt/baybuild/static.new && tar -xzf - -C /opt/baybuild/static.new && rm -rf /opt/baybuild/static.old && { [ ! -d /opt/baybuild/static ] || mv /opt/baybuild/static /opt/baybuild/static.old; } && mv /opt/baybuild/static.new /opt/baybuild/static && rm -rf /opt/baybuild/static.old"
           $SSH "root@$HOST" "mv /opt/baybuild/baubuild.new /opt/baybuild/baubuild && chmod 755 /opt/baybuild/baubuild && systemctl restart baybuild && systemctl is-active baybuild"
