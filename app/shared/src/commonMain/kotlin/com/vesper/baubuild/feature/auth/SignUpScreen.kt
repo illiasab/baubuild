@@ -2,7 +2,6 @@ package com.vesper.baubuild.feature.auth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,18 +9,17 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -31,120 +29,142 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vesper.baubuild.designsystem.BauCard
 import com.vesper.baubuild.designsystem.BauColors
+import com.vesper.baubuild.designsystem.BauTextLink
 
 /**
- * Sign Up: BAU BUILD has no passwords of its own; "signing up" is the first Microsoft sign-in with a BAU
- * account. This screen explains who it's for, optionally checks an email's domain offline, and starts the
- * Microsoft browser sign-in (with the email as `login_hint`).
+ * Sign Up: full name, BAU email (live student / staff / not-allowed hint), password with rule hint, confirm,
+ * terms. "Create Account" stays disabled until everything is valid; the server then emails a 6-digit code.
  */
 @Composable
 internal fun SignUpScreen(
-    authState: AuthUiState,
     state: SignUpUiState,
+    onNameChange: (String) -> Unit,
     onEmailChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onConfirmPasswordChange: (String) -> Unit,
+    onTogglePasswordVisible: () -> Unit,
     onTermsAcceptedChange: (Boolean) -> Unit,
-    onContinue: () -> Unit,
-    onCancelSignIn: () -> Unit,
+    onSubmit: () -> Unit,
     onLogIn: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val focus = LocalFocusManager.current
+    val emailFocus = remember { FocusRequester() }
+    val passwordFocus = remember { FocusRequester() }
+    val confirmFocus = remember { FocusRequester() }
+    val submit = {
+        if (state.canSubmit) {
+            focus.clearFocus()
+            onSubmit()
+        } else {
+            focus.clearFocus()
+        }
+    }
+    val editable = !state.submitting
     AuthSubScreen(
         title = "Join BAU BUILD",
-        subtitle = "Free for BAU students and staff. You sign up with your BAU Microsoft account — no new password.",
+        subtitle = "Free for BAU students and staff. Sign up with your BAU email.",
         onBack = onBack,
         modifier = modifier,
     ) {
-        BauCard(Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                AudienceRow("Students", "@stu.bau.edu", "Pick projects, build them, get them approved.")
-                AudienceRow("Staff", "@bau.edu", "Everything students can do, plus request projects.")
-            }
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("BAU email (optional)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = BauColors.TextSecondary)
-            OutlinedTextField(
-                value = state.email,
-                onValueChange = onEmailChange,
-                singleLine = true,
-                enabled = !authState.isSigningIn,
-                placeholder = { Text("name@stu.bau.edu", color = BauColors.TextTertiary) },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.None,
-                    autoCorrectEnabled = false,
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-                shape = RoundedCornerShape(16.dp),
-                colors = authFieldColors(),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            )
-            DomainCheckLine(state.domainCheck)
-        }
-
-        AuthSectionLabel("How it works")
-        AuthStep(1, "Sign in with your BAU Microsoft account", "The same account you use for BAU email and Teams.")
-        AuthStep(2, "Pick a project", "Browse real BAU projects and say “I’m In”.")
-        AuthStep(3, "Get it approved", "Build it with an AI mentor, then a dev lead reviews and approves it.")
-
-        TermsCheckbox(
-            checked = state.termsAccepted,
-            enabled = !authState.isSigningIn,
-            onCheckedChange = onTermsAcceptedChange,
+        AuthTextField(
+            label = "Full name",
+            value = state.name,
+            onValueChange = onNameChange,
+            placeholder = "Sam Carter",
+            keyboardOptions = NameKeyboard,
+            onImeAction = { runCatching { emailFocus.requestFocus() } },
+            contentType = ContentType.PersonFullName,
+            enabled = editable,
         )
+        AuthTextField(
+            label = "BAU email",
+            value = state.email,
+            onValueChange = onEmailChange,
+            placeholder = "name@stu.bau.edu",
+            keyboardOptions = EmailKeyboard,
+            onImeAction = { runCatching { passwordFocus.requestFocus() } },
+            contentType = ContentType.NewUsername + ContentType.EmailAddress,
+            enabled = editable,
+            isError = state.domainCheck is DomainCheck.External || state.emailTaken,
+            focusRequester = emailFocus,
+            below = { DomainCheckLine(state.domainCheck) },
+        )
+        AuthTextField(
+            label = "Password",
+            value = state.password,
+            onValueChange = onPasswordChange,
+            placeholder = "At least 8 characters",
+            keyboardOptions = PasswordKeyboard,
+            onImeAction = { runCatching { confirmFocus.requestFocus() } },
+            contentType = ContentType.NewPassword,
+            enabled = editable,
+            focusRequester = passwordFocus,
+            password = true,
+            passwordVisible = state.passwordVisible,
+            onTogglePasswordVisible = onTogglePasswordVisible,
+            below = { PasswordRulesLine(state.passwordCheck) },
+        )
+        AuthTextField(
+            label = "Confirm password",
+            value = state.confirmPassword,
+            onValueChange = onConfirmPasswordChange,
+            placeholder = "Type it again",
+            keyboardOptions = PasswordKeyboard.copy(imeAction = ImeAction.Done),
+            onImeAction = submit,
+            contentType = ContentType.NewPassword,
+            enabled = editable,
+            isError = state.confirmMismatch,
+            focusRequester = confirmFocus,
+            password = true,
+            passwordVisible = state.passwordVisible,
+            onTogglePasswordVisible = onTogglePasswordVisible,
+            below = { if (state.confirmMismatch) AuthFieldHint("Passwords don’t match") },
+        )
+
+        TermsCheckbox(checked = state.termsAccepted, enabled = editable, onCheckedChange = onTermsAcceptedChange)
 
         Column(
             Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            (authState.status as? AuthStatus.Error)?.let { AuthInlineError(it.message) }
+            if (state.emailTaken) EmailTakenBox(onLogIn)
+            state.error?.let { AuthInlineError(it) }
             AuthPrimaryButton(
-                text = "Continue with Microsoft",
-                onClick = {
-                    focus.clearFocus()
-                    onContinue()
-                },
-                enabled = state.canContinue,
-                loading = authState.isSigningIn,
+                text = "Create Account",
+                onClick = submit,
+                enabled = state.canSubmit,
+                loading = state.submitting,
+                loadingDescription = "Creating your account",
             )
-            if (authState.isSigningIn) {
-                Text("Finish signing in with Microsoft…", fontSize = 13.sp, lineHeight = 18.sp, color = BauColors.TextSecondary)
-                AuthTextAction(lead = null, action = "Cancel", onClick = onCancelSignIn)
-            } else {
-                if (!state.canContinue) {
-                    Text("Accept the terms to continue", fontSize = 13.sp, lineHeight = 18.sp, color = BauColors.TextSecondary)
-                }
-                AuthTextAction(lead = "Already a member?", action = "Log In", onClick = onLogIn)
-            }
+            AuthTextAction(lead = "Already a member?", action = "Log In", onClick = onLogIn)
         }
     }
 }
 
+/** `email_taken`: "An account with this email already exists. **Log In** instead?" */
 @Composable
-private fun AudienceRow(who: String, domain: String, detail: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.padding(top = 6.dp).size(8.dp).background(BauColors.Yellow, CircleShape))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(who) }
-                    append(" · ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(domain) }
-                },
-                fontSize = 16.sp, lineHeight = 21.sp, color = BauColors.Ink,
-            )
-            Text(detail, fontSize = 14.sp, lineHeight = 19.sp, color = BauColors.TextSecondary)
+internal fun EmailTakenBox(onLogIn: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxWidth()
+            .background(BauColors.WarningSoft, RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "An account with this email already exists.",
+            fontSize = 14.sp, lineHeight = 19.sp, color = BauColors.WarningInk,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BauTextLink("Log In", onClick = onLogIn, fontSize = 14.sp)
+            Text("instead?", fontSize = 14.sp, color = BauColors.WarningInk)
         }
     }
 }
@@ -154,12 +174,9 @@ private fun AudienceRow(who: String, domain: String, detail: String) {
 internal fun DomainCheckLine(check: DomainCheck) {
     val (text, container, content) = when (check) {
         DomainCheck.None -> return
-        DomainCheck.Student -> Triple("Student account · free", BauColors.BlueSoft, BauColors.BlueDeep)
-        DomainCheck.Staff -> Triple("Staff account · free · can request projects", BauColors.BlueSoft, BauColors.BlueDeep)
-        is DomainCheck.External -> Triple(
-            if (check.requiresPayment) "Outside BAU · needs a paid plan" else "Only BAU accounts for now",
-            BauColors.WarningSoft, BauColors.WarningInk,
-        )
+        DomainCheck.Student -> Triple("Student account", BauColors.BlueSoft, BauColors.BlueDeep)
+        DomainCheck.Staff -> Triple("Staff account · can request projects", BauColors.BlueSoft, BauColors.BlueDeep)
+        is DomainCheck.External -> Triple(MSG_BAU_ONLY, BauColors.WarningSoft, BauColors.WarningInk)
     }
     Text(
         text,

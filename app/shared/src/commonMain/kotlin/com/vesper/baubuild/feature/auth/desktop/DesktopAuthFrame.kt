@@ -48,7 +48,7 @@ internal val DesktopAuthSplitBreakpoint = 900.dp
 private const val PITCH = "Pick a BAU project, build it with an AI mentor, and get it approved by a dev lead."
 
 private val Steps = listOf(
-    Triple("Sign in", "With your BAU Microsoft account", "The same account as BAU email and Teams."),
+    Triple("Sign up", "With your BAU email", "@stu.bau.edu or @bau.edu, confirmed with a code."),
     Triple("Pick a project", "Real BAU work, posted daily", "Browse projects and say “I’m In”."),
     Triple("Get it approved", "AI review, human sign-off", "A dev lead reviews and approves it."),
 )

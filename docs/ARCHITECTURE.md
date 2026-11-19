@@ -9,10 +9,10 @@ Design reference: https://baybuild.vercel.app/ (tab "iOS app").
 
 | Package | What lives there |
 |---|---|
-| `core/model` | Serializable domain models + `AccountPolicy` (email-domain rules). |
+| `core/model` | Serializable domain models + `AccountPolicy` (email-domain rules) + `PasswordCheck` (client mirror of the password rule). |
 | `core/session` | `SessionStore` (StateFlow of `SessionState`), `TokenStore` for the backend's access + refresh tokens (Keychain / Keystore). |
-| `core/auth` | Microsoft (Entra ID) sign-in: PKCE authorization code via the platform browser (`MicrosoftOAuthSignIn`), redeemed by the backend. **App registration lives in `core/auth/MicrosoftAuthConfig.kt`** (`BAU_ENTRA_CLIENT_ID`, `BAU_ENTRA_TENANT`); while they are placeholders, sign-in shows "Microsoft sign-in isn't set up for this build yet." without opening a browser. |
-| `core/network` | `ApiConfig` (base `https://api.baubuild.vesperconnect.org/`, debug override below), `AppJson`, Ktor client with retry/backoff, Bearer access token + automatic refresh, `ApiException` (`apiCall {}`) from the backend's `{"error":{"code","message"}}`. |
+| `core/auth` | Android only: `AuthPlatform.init(context)` (the app `Context` for secure storage, device info, flags). Sign-in itself is plain email + password — see **Sign-in** below. |
+| `core/network` | `ApiConfig` (base `https://api.baubuild.vesperconnect.org/`, debug override below), `AppJson`, Ktor client with retry/backoff, Bearer access token + automatic refresh (never on the public `/v1/auth/…` routes — only `logout` carries the token), `ApiException` (`apiCall {}`, with `retry_after_s` / `resend_after_s` hints) from the backend's `{"error":{"code","message"}}`. |
 | `core/LoadState*.kt` | `LoadState<T>` and `MutableStateFlow<LoadState<T>>.load {}` helper. |
 | `data/repository` | Repository interfaces (the contract with the backend; real implementations in `data/http`). |
 | `data/http` | Real backend repositories (`auth`, `config`, `student`, `staff`). Contract: `docs/openapi.json` + `docs/index.html`; backend needs: `docs/BACKEND_REQUIREMENTS.md`. |
@@ -33,7 +33,7 @@ Design reference: https://baybuild.vercel.app/ (tab "iOS app").
    inline errors, and keep the user's input on failure. Network layer retries idempotent calls with backoff.
    Backend JSON may gain fields at any time (`ignoreUnknownKeys`).
 3. **Shared UI first.** All screens are Compose in `commonMain`. Platform code only where the platform
-   demands it (Microsoft sign-in, secure token storage, iOS Liquid Glass tab bar).
+   demands it (secure token storage, iOS Liquid Glass tab bar).
 4. **Three shells, one set of features.**
    - **iOS** — native SwiftUI. iOS 26+: Liquid Glass `TabView`; iOS 16–25: `.ultraThinMaterial` bar with the same
      layout. Each tab hosts its Compose root via a `UIViewController` exported from `iosMain`.
@@ -60,9 +60,28 @@ Design reference: https://baybuild.vercel.app/ (tab "iOS app").
 9. **Bottom spacing** (mobile): scroll content and pinned buttons end `BauSpacing.aboveTabBar` (24dp) above the tab bar
    via `bottomContentPadding()` / `Modifier.tabBarContentPadding()`.
 10. **Real data only.** The shipped app has no mock data, demo accounts or auth bypass. In-memory fakes
-    (`Fake*Repository`, `FakeData`, `FakeMicrosoftSignIn`, `FakeGitHubRepository`) live in
+    (`Fake*Repository` incl. `FakeAuthRepository`, `FakeData`, `FakeGitHubRepository`) live in
     `app/shared/src/commonTest` (same packages) and are only for tests. Every screen renders repository data through
     `LoadStateContent`, with intentional empty and error states for a fresh account or an unreachable server.
+
+## Sign-in
+
+Plain **email + password** accounts with **email-code verification** (contract: `docs/BACKEND_REQUIREMENTS.md` §1).
+Only `@stu.bau.edu` (students) and `@bau.edu` (staff) may register and use the app; the server enforces it on register,
+login and every token refresh, and `AccountPolicy` mirrors it offline so no request is sent for another domain.
+
+- `AuthRepository` (`data/repository`): `register`, `verifyEmail`, `resendCode(purpose)`, `login`, `forgotPassword`,
+  `resetPassword`, `me`, `signOut`, each returning a typed sealed result (`AuthOutcome.*`: `SignedIn`,
+  `VerificationRequired`, `EmailTaken`, `InvalidCredentials`, `InvalidCode`, `CodeExpired`, `TooManyAttempts`, …).
+  `HttpAuthRepository` stores the session (`SessionStore.signedIn`) whenever tokens come back.
+- `feature/auth`: `AuthRoot` hosts Welcome → Log In / Sign Up → **Verify Email** (6-digit code, auto-submit,
+  resend countdown) and Forgot Password (email → code + new password → signed in), plus **Not Allowed** for a server
+  `domain_not_allowed` (also after a refresh refused the domain: `SignOutReason.DomainNotAllowed`). `AuthViewModel`
+  owns navigation; each form has its own ViewModel and reports back through `AuthNavigator`. Mobile and desktop
+  (`feature/auth/desktop`) render the same ViewModels.
+- Fields: IME Next/Done chain the fields and Done submits; autofill content types (name, username/email,
+  new password, password, one-time code); secure entry with Show/Hide; `AuthSubScreen` uses `imePadding` + scroll so
+  the keyboard never hides the primary button.
 
 ## Backend URL and local testing
 
@@ -77,5 +96,6 @@ server (e.g. `server/` on port 8000):
   `AppGraph.init(AppGraph(ApiConfig(baseUrl = "http://10.0.2.2:8000/")))` in `MainActivity.onCreate` (cleartext HTTP
   also needs a network security config).
 
-iOS DEBUG launch arguments that remain are purely visual and apply after a real sign-in: `-initialTab`,
+iOS DEBUG launch argument `-authScreen login|signup|forgot` (desktop: `-Dbau.authScreen=…`) only opens that auth
+screen first (no data, no bypass). The others are purely visual and apply after a real sign-in: `-initialTab`,
 `-forceLegacyTabBar`, `-startScrolledToBottom`, `-searchQuery`, `-staffTour show|off`, `-openNewInquiry`.

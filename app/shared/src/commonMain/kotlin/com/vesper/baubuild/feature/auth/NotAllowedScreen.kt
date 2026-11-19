@@ -37,14 +37,14 @@ import com.vesper.baubuild.designsystem.BauSecondaryButton
 import com.vesper.baubuild.designsystem.BauSpacing
 
 /**
- * Shown when Microsoft sign-in worked but the account isn't a BAU account. Explains the rule from
- * [com.vesper.baubuild.core.model.AccountPolicy] and offers a way out (another account / sign out).
+ * Shown when the server refused the account's domain (`domain_not_allowed` on log-in or token refresh). Explains
+ * the rule from [com.vesper.baubuild.core.model.AccountPolicy] and offers a way out (log in with a BAU email / back).
  */
 @Composable
 internal fun NotAllowedScreen(
     status: AuthStatus,
     onUseAnotherAccount: () -> Unit,
-    onSignOut: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val email: String
@@ -55,13 +55,12 @@ internal fun NotAllowedScreen(
             email = status.email
             title = "This account needs a paid plan"
             body = "BAU BUILD is free for BAU students and staff. Accounts from outside BAU need a paid plan, " +
-                "which isn't available in the app yet. Sign in with your BAU account to keep going for free."
+                "which isn't available in the app yet. Log in with your BAU email to keep going for free."
         }
         is AuthStatus.BlockedDomain -> {
             email = status.email
             title = "BAU BUILD is open to BAU students and staff for now"
-            body = "You signed in with an account from outside BAU. Use your BAU Microsoft account to join. " +
-                "We plan to open BAU BUILD to everyone later."
+            body = NOT_ALLOWED_BODY
         }
         else -> return
     }
@@ -90,7 +89,7 @@ internal fun NotAllowedScreen(
             Text(body, fontSize = 17.sp, lineHeight = 24.sp, color = BauColors.TextSecondary)
 
             BauCard(Modifier.fillMaxWidth()) {
-                Text("SIGNED IN AS", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em,
+                Text("EMAIL", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em,
                     color = BauColors.TextTertiary)
                 Text(email.ifBlank { UNKNOWN_ACCOUNT_LABEL }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink,
                     modifier = Modifier.padding(top = 2.dp, bottom = BauSpacing.md))
@@ -99,8 +98,8 @@ internal fun NotAllowedScreen(
             }
 
             Spacer(Modifier.height(BauSpacing.sm))
-            BauPrimaryButton("Use My BAU Account", onUseAnotherAccount, Modifier.fillMaxWidth())
-            BauSecondaryButton("Sign Out", onSignOut, Modifier.fillMaxWidth())
+            BauPrimaryButton("Log In with a BAU Email", onUseAnotherAccount, Modifier.fillMaxWidth())
+            BauSecondaryButton("Back", onDismiss, Modifier.fillMaxWidth())
         }
     }
 }
@@ -109,12 +108,15 @@ internal fun NotAllowedScreen(
 private fun DomainRule(who: String, domain: String) {
     Text(
         buildAnnotatedString {
-            append("$who sign in with ")
+            append("$who use ")
             withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = BauColors.Ink)) { append(domain) }
         },
         fontSize = 15.sp, lineHeight = 22.sp, color = BauColors.TextSecondary,
     )
 }
 
-/** The backend doesn't echo a refused address; shown when no email was typed either. */
-internal const val UNKNOWN_ACCOUNT_LABEL = "A Microsoft account outside BAU"
+/** Shown when the refused address isn't known (e.g. a session restored without a cached user). */
+internal const val UNKNOWN_ACCOUNT_LABEL = "An email outside BAU"
+
+internal const val NOT_ALLOWED_BODY = "This email isn't a BAU address. BAU BUILD is only for @stu.bau.edu students and " +
+    "@bau.edu staff for now. We plan to open it to everyone later."

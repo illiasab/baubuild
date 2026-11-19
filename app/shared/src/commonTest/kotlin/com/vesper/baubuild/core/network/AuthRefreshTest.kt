@@ -4,6 +4,7 @@ import com.vesper.baubuild.core.session.AuthTokens
 import com.vesper.baubuild.core.session.InMemoryTokenStore
 import com.vesper.baubuild.core.session.SessionState
 import com.vesper.baubuild.core.session.SessionStore
+import com.vesper.baubuild.core.session.SignOutReason
 import com.vesper.baubuild.data.fake.FakeData
 import io.ktor.client.call.body
 import io.ktor.client.engine.mock.MockEngine
@@ -169,5 +170,86 @@ class AuthRefreshTest {
         session.signOut()
         assertEquals(false, session.updateTokens(previous, AuthTokens("x", "y")))
         assertNull(session.tokens)
+    }
+    @Test
+    fun classifiesAuthRoutes() {
+        listOf("register", "verify-email", "resend-code", "login", "password/forgot", "password/reset", "refresh", "something-new")
+            .forEach { assertEquals(AuthRouteKind.Public, authRouteKind("/v1/auth/$it"), it) }
+        assertEquals(AuthRouteKind.Public, authRouteKind("/api/v1/auth/login")) // base URL with a path prefix
+        assertEquals(AuthRouteKind.BearerNoRefresh, authRouteKind("/v1/auth/logout"))
+        assertEquals(AuthRouteKind.Protected, authRouteKind("/v1/auth/sessions"))
+        assertEquals(AuthRouteKind.Protected, authRouteKind("/v1/auth/sessions/s1"))
+        assertEquals(AuthRouteKind.Protected, authRouteKind("/v1/me"))
+        assertEquals(AuthRouteKind.Protected, authRouteKind("/v1/authors")) // not the auth prefix
+    }
+
+    @Test
+    fun publicAuthRoutesCarryNoBearerAndNeverRefresh() = runTest {
+        signIn(expiresAt = now + 30_000) // would trigger a proactive refresh on a protected route
+        var refreshes = 0
+        val auth = mutableMapOf<String, String?>()
+        val client = client { req ->
+            if (req.url.encodedPath == "/v1/auth/refresh") refreshes++
+            auth[req.url.encodedPath] = req.headers[HttpHeaders.Authorization]
+            apiError(401, "invalid_credentials")
+        }
+        for (path in listOf("v1/auth/register", "v1/auth/verify-email", "v1/auth/resend-code", "v1/auth/login",
+            "v1/auth/password/forgot", "v1/auth/password/reset")) {
+            assertFailsWith<ApiException> { apiCall { client.post(path) } }
+        }
+        assertEquals(0, refreshes)
+        assertEquals(6, auth.size)
+        assertTrue(auth.values.all { it == null })
+        assertIs<SessionState.SignedIn>(session.state.value) // a 401 from log-in never signs anyone out
+    }
+
+    @Test
+    fun sessionsListIsAuthenticatedAndRefreshable() = runTest {
+        signIn()
+        val client = client { req ->
+            when {
+                req.url.encodedPath == "/v1/auth/refresh" -> jsonResponse(tokenJson("new", "r2"))
+                req.headers[HttpHeaders.Authorization] == "Bearer new" -> jsonResponse("{}")
+                else -> apiError(401, "unauthorized")
+            }
+        }
+        client.get("v1/auth/sessions")
+        assertEquals("new", session.token)
+    }
+
+    @Test
+    fun logoutCarriesTheBearer() = runTest {
+        signIn()
+        var header: String? = null
+        val client = client { req -> header = req.headers[HttpHeaders.Authorization]; jsonResponse("{}") }
+        client.post("v1/auth/logout")
+        assertEquals("Bearer old", header)
+    }
+
+    @Test
+    fun domainRefusedOnRefreshSignsOutWithReason() = runTest {
+        signIn()
+        val client = client { req ->
+            when (req.url.encodedPath) {
+                "/v1/auth/refresh" -> apiError(403, "domain_not_allowed")
+                else -> apiError(401, "unauthorized")
+            }
+        }
+        assertFailsWith<ApiException> { apiCall { client.get("v1/me").body<String>() } }
+        assertEquals(SessionState.SignedOut, session.state.value)
+        assertEquals(SignOutReason.DomainNotAllowed(FakeData.sam.email), session.signOutReason.value)
+        assertNull(store.read())
+    }
+
+    @Test
+    fun apiErrorsCarryRetryHints() = runTest {
+        val client = client {
+            jsonResponse("""{"error":{"code":"email_not_verified","message":"m","resend_after_s":40},"retry_after_s":7}""",
+                io.ktor.http.HttpStatusCode.Forbidden)
+        }
+        val e = assertFailsWith<ApiException> { apiCall { client.post("v1/auth/login") } }
+        assertEquals("email_not_verified", e.code)
+        assertEquals(40L, e.resendAfterSeconds)
+        assertEquals(7L, e.retryAfterSeconds)
     }
 }

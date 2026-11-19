@@ -60,7 +60,7 @@ import com.vesper.baubuild.designsystem.BauColors
 import com.vesper.baubuild.designsystem.BauSpacing
 
 /**
- * Layout shared by Log In, Sign Up and Forgot Password: a navy header with the brand mark and a back button
+ * Layout shared by Log In, Sign Up, Verify Email and Forgot Password: a navy header with the brand mark and a back button
  * (the welcome hero, shortened), then a scrolling paper body. Handles safe-area insets and the keyboard.
  */
 @Composable
@@ -228,31 +228,6 @@ internal fun AuthInlineError(message: String, modifier: Modifier = Modifier) {
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .semantics { liveRegion = LiveRegionMode.Polite },
         fontSize = 14.sp, lineHeight = 19.sp, color = BauColors.WarningInk, textAlign = TextAlign.Center,
-    )
-}
-
-/** Numbered step row used by "How it works". */
-@Composable
-internal fun AuthStep(number: Int, title: String, body: String, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(
-            Modifier.size(32.dp).background(BauColors.Ink, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("$number", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = BauColors.Yellow)
-        }
-        Column(Modifier.weight(1f).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink)
-            Text(body, fontSize = 14.sp, lineHeight = 19.sp, color = BauColors.TextSecondary)
-        }
-    }
-}
-
-@Composable
-internal fun AuthSectionLabel(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text.uppercase(), modifier = modifier.padding(top = BauSpacing.sm),
-        fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.06.em, color = BauColors.TextTertiary,
     )
 }
 

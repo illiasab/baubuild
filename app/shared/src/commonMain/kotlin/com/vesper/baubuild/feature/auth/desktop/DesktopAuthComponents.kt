@@ -309,12 +309,14 @@ internal fun DesktopTextField(
     enabled: Boolean = true,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailingIcon: (@Composable () -> Unit)? = null,
+    isError: Boolean = false,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
         enabled = enabled,
+        isError = isError,
         placeholder = { Text(placeholder, color = BauColors.TextTertiary) },
         keyboardOptions = keyboardOptions,
         visualTransformation = visualTransformation,

@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		5D8F292CD1EA34550E68650B /* demo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = demo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5D8F292CD1EA34550E68650B /* BAUBUILD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BAUBUILD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -58,7 +58,7 @@
 		044D34D9EF4229993818360B /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				5D8F292CD1EA34550E68650B /* demo.app */,
+				5D8F292CD1EA34550E68650B /* BAUBUILD.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -95,7 +95,7 @@
 			packageProductDependencies = (
 			);
 			productName = iosApp;
-			productReference = 5D8F292CD1EA34550E68650B /* demo.app */;
+			productReference = 5D8F292CD1EA34550E68650B /* BAUBUILD.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */

@@ -41,7 +41,6 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             implementation(libs.ktor.clientOkhttp)
-            implementation(libs.androidx.browser)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
         }

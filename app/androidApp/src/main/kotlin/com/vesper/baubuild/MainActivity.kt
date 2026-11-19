@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
         val lightBars = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
         enableEdgeToEdge(statusBarStyle = lightBars, navigationBarStyle = lightBars)
         super.onCreate(savedInstanceState)
-        AuthPlatform.init(this) // secure token storage + Microsoft sign-in need a Context
+        AuthPlatform.init(this) // secure token storage + device info need a Context
 
         setContent {
             App()

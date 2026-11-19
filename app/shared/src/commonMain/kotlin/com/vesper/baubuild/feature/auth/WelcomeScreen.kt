@@ -42,11 +42,9 @@ import com.vesper.baubuild.designsystem.BauSpacing
 /** Welcome / sign-in screen from the design ("iOS app" → Welcome). */
 @Composable
 internal fun WelcomeScreen(
-    state: AuthUiState,
     onLogIn: () -> Unit,
     onSignUp: () -> Unit,
     onForgotPassword: () -> Unit,
-    onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize().background(BauColors.Paper), contentAlignment = Alignment.TopCenter) {
@@ -76,7 +74,7 @@ internal fun WelcomeScreen(
                         )
                     }
                 }
-                Actions(state, onLogIn, onSignUp, onForgotPassword, onCancel)
+                Actions(onLogIn, onSignUp, onForgotPassword)
             }
         }
     }
@@ -111,11 +109,9 @@ private fun Hero(modifier: Modifier) {
 
 @Composable
 private fun Actions(
-    state: AuthUiState,
     onLogIn: () -> Unit,
     onSignUp: () -> Unit,
     onForgotPassword: () -> Unit,
-    onCancel: () -> Unit,
 ) {
     Column(
         Modifier
@@ -126,19 +122,11 @@ private fun Actions(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        (state.status as? AuthStatus.Error)?.let { AuthInlineError(it.message) }
-        // "Sign Up" and "Log In" only navigate; Microsoft sign-in starts from their "Continue with Microsoft".
-        // No role picker: student vs staff is detected from the email domain (AccountPolicy).
+        // "Sign Up" and "Log In" only navigate. No role picker: student vs staff comes from the email domain.
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-            AuthPrimaryButton("Sign Up", onClick = onSignUp, loading = state.isSigningIn, modifier = Modifier.fillMaxWidth())
-            if (!state.isSigningIn) AuthTextAction(lead = null, action = "Forgot password?", onClick = onForgotPassword)
+            AuthPrimaryButton("Sign Up", onClick = onSignUp, modifier = Modifier.fillMaxWidth())
+            AuthTextAction(lead = null, action = "Forgot password?", onClick = onForgotPassword)
         }
-        if (state.isSigningIn) {
-            Text("Finish signing in with Microsoft…", fontSize = 13.sp, lineHeight = 18.sp, color = BauColors.TextSecondary)
-            AuthTextAction(lead = null, action = "Cancel", onClick = onCancel)
-        }
-        if (!state.isSigningIn) {
-            AuthTextAction(lead = "Already a member?", action = "Log In", onClick = onLogIn)
-        }
+        AuthTextAction(lead = "Already a member?", action = "Log In", onClick = onLogIn)
     }
 }

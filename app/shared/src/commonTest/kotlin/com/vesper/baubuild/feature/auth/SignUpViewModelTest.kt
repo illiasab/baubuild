@@ -1,22 +1,37 @@
 package com.vesper.baubuild.feature.auth
 
 import com.vesper.baubuild.core.model.AccountPolicy
+import com.vesper.baubuild.core.model.PasswordCheck
+import com.vesper.baubuild.data.fake.FakeAuthRepository
+import com.vesper.baubuild.data.repository.AuthOutcome
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class SignUpViewModelTest {
-    private fun vm(policy: AccountPolicy = AccountPolicy()) = SignUpViewModel(policy)
+@OptIn(ExperimentalCoroutinesApi::class)
+class SignUpViewModelTest : ViewModelTest() {
+    private val repo = FakeAuthRepository()
+    private val nav = RecordingNavigator()
+    private fun vm(policy: AccountPolicy = AccountPolicy()) = SignUpViewModel(repo, policy, nav)
+
+    private fun SignUpViewModel.fillValid(email: String = "sam.carter@stu.bau.edu") {
+        onNameChange("Sam Carter")
+        onEmailChange(email)
+        onPasswordChange("buildit42")
+        onConfirmPasswordChange("buildit42")
+        onTermsAcceptedChange(true)
+    }
 
     @Test
-    fun startsEmptyWithNoCheckAndContinueDisabled() {
-        val state = vm().state.value
-        assertEquals("", state.email)
-        assertEquals(DomainCheck.None, state.domainCheck)
-        assertFalse(state.canContinue)
-        assertNull(state.loginHint)
+    fun startsEmptyAndDisabled() {
+        val s = vm().state.value
+        assertEquals(DomainCheck.None, s.domainCheck)
+        assertFalse(s.canSubmit)
     }
 
     @Test
@@ -28,41 +43,88 @@ class SignUpViewModelTest {
         assertEquals(DomainCheck.Staff, vm.state.value.domainCheck)
         vm.onEmailChange("alex@gmail.com")
         assertEquals(DomainCheck.External(requiresPayment = false), vm.state.value.domainCheck)
+        vm.onEmailChange("sam@stu")
+        assertEquals(DomainCheck.None, vm.state.value.domainCheck)
     }
 
     @Test
-    fun externalNeedsPaymentWhenExternalAccessIsOpen() {
-        val vm = vm(AccountPolicy(externalAccessEnabled = true))
-        vm.onEmailChange("alex@gmail.com")
-        assertEquals(DomainCheck.External(requiresPayment = true), vm.state.value.domainCheck)
+    fun passwordRulesNeedEightCharsALetterAndADigit() {
+        assertFalse(PasswordCheck.of("short1").isValid)
+        assertFalse(PasswordCheck.of("allletters").isValid)
+        assertFalse(PasswordCheck.of("12345678").isValid)
+        assertTrue(PasswordCheck.of("buildit42").isValid)
+        assertEquals(PasswordCheck(longEnough = true, hasLetter = true, hasDigit = false), PasswordCheck.of("abcdefgh"))
     }
 
     @Test
-    fun incompleteAddressesShowNothing() {
+    fun createAccountIsGatedOnEveryField() {
         val vm = vm()
-        listOf("", "   ", "sam", "sam@", "@bau.edu", "sam@bau", "sam@stu.").forEach { input ->
-            vm.onEmailChange(input)
-            assertEquals(DomainCheck.None, vm.state.value.domainCheck, "for '$input'")
-            assertNull(vm.state.value.loginHint, "hint for '$input'")
-        }
-    }
-
-    @Test
-    fun loginHintIsTrimmedCompleteAddress() {
-        val vm = vm()
-        vm.onEmailChange("  sam.carter@stu.bau.edu ")
-        assertEquals("sam.carter@stu.bau.edu", vm.state.value.loginHint)
-        assertEquals("  sam.carter@stu.bau.edu ", vm.state.value.email) // field keeps what was typed
-    }
-
-    @Test
-    fun termsGateContinueAndEmailIsOptional() {
-        val vm = vm()
-        vm.onTermsAcceptedChange(true)
-        assertTrue(vm.state.value.canContinue)
-        vm.onEmailChange("alex@gmail.com") // the backend decides; the client only explains
-        assertTrue(vm.state.value.canContinue)
+        vm.fillValid()
+        assertTrue(vm.state.value.canSubmit)
+        vm.onConfirmPasswordChange("buildit43")
+        assertTrue(vm.state.value.confirmMismatch)
+        assertFalse(vm.state.value.canSubmit)
+        vm.onConfirmPasswordChange("buildit42")
         vm.onTermsAcceptedChange(false)
-        assertFalse(vm.state.value.canContinue)
+        assertFalse(vm.state.value.canSubmit)
+        vm.onTermsAcceptedChange(true)
+        vm.onNameChange("  ")
+        assertFalse(vm.state.value.canSubmit)
+        vm.onNameChange("Sam")
+        vm.onPasswordChange("weak"); vm.onConfirmPasswordChange("weak")
+        assertFalse(vm.state.value.canSubmit)
+    }
+
+    @Test
+    fun externalEmailNeverReachesTheServer() = test {
+        val vm = vm()
+        vm.fillValid(email = "alex@gmail.com")
+        assertFalse(vm.state.value.canSubmit)
+        vm.submit()
+        advanceUntilIdle()
+        assertEquals(MSG_BAU_ONLY, vm.state.value.error)
+        assertTrue(repo.calls.isEmpty())
+    }
+
+    @Test
+    fun successOpensVerifyEmail() = test {
+        val vm = vm()
+        vm.fillValid()
+        vm.submit()
+        runCurrent()
+        assertFalse(vm.state.value.submitting)
+        assertEquals<List<Pair<String, Long?>>>(listOf("sam.carter@stu.bau.edu" to FakeAuthRepository.RESEND_AFTER), nav.verifications)
+        assertEquals(listOf("register:sam.carter@stu.bau.edu"), repo.calls)
+    }
+
+    @Test
+    fun emailTakenShowsLogInInstead() = test {
+        repo.addAccount("sam.carter@stu.bau.edu", "buildit42")
+        val vm = vm()
+        vm.fillValid()
+        vm.submit()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.emailTaken)
+        assertTrue(nav.verifications.isEmpty())
+        vm.onEmailChange("sam.c@stu.bau.edu")
+        assertFalse(vm.state.value.emailTaken)
+    }
+
+    @Test
+    fun serverErrorsStayInlineAndKeepInput() = test {
+        val vm = vm()
+        vm.fillValid()
+        repo.nextRegister = AuthOutcome.WeakPassword
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_WEAK_PASSWORD, vm.state.value.error)
+        repo.nextRegister = AuthOutcome.DomainNotAllowed
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_BAU_ONLY, vm.state.value.error)
+        repo.nextError = RuntimeException("offline")
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_NETWORK, vm.state.value.error)
+        assertEquals("buildit42", vm.state.value.password)
+        vm.onNameChange("Sam C")
+        assertNull(vm.state.value.error)
     }
 }

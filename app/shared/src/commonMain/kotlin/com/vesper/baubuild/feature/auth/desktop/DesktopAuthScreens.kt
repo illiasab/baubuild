@@ -10,9 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,38 +22,46 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vesper.baubuild.designsystem.BauColors
-import com.vesper.baubuild.designsystem.MonoFamily
+import com.vesper.baubuild.feature.auth.AuthFieldHint
 import com.vesper.baubuild.feature.auth.AuthInlineError
+import com.vesper.baubuild.feature.auth.AuthNotice
 import com.vesper.baubuild.feature.auth.AuthStatus
-import com.vesper.baubuild.feature.auth.AuthUiState
 import com.vesper.baubuild.feature.auth.BauBuildMark
+import com.vesper.baubuild.feature.auth.CODE_LENGTH
+import com.vesper.baubuild.feature.auth.DomainCheck
 import com.vesper.baubuild.feature.auth.DomainCheckLine
+import com.vesper.baubuild.feature.auth.EmailKeyboard
+import com.vesper.baubuild.feature.auth.ForgotPasswordStep
 import com.vesper.baubuild.feature.auth.ForgotPasswordUiState
 import com.vesper.baubuild.feature.auth.LoginUiState
+import com.vesper.baubuild.feature.auth.MSG_BAU_ONLY
+import com.vesper.baubuild.feature.auth.NOT_ALLOWED_BODY
+import com.vesper.baubuild.feature.auth.NameKeyboard
+import com.vesper.baubuild.feature.auth.PasswordKeyboard
+import com.vesper.baubuild.feature.auth.PasswordRulesLine
+import com.vesper.baubuild.feature.auth.ResendCodeLine
 import com.vesper.baubuild.feature.auth.SignUpUiState
 import com.vesper.baubuild.feature.auth.UNKNOWN_ACCOUNT_LABEL
+import com.vesper.baubuild.feature.auth.VerificationCodeField
+import com.vesper.baubuild.feature.auth.VerifyEmailUiState
+import com.vesper.baubuild.feature.auth.normalizeCode
 
-// Desktop variants of the signed-out screens. Same callbacks as the mobile screens (AuthRoot wires both to the
-// same ViewModels); only the layout differs. Each renders the form card that DesktopAuthFrame centres.
-
-private val emailKeyboard = KeyboardOptions(
-    capitalization = KeyboardCapitalization.None,
-    autoCorrectEnabled = false,
-    keyboardType = KeyboardType.Email,
-    imeAction = ImeAction.Next,
-)
+// Desktop variants of the signed-out screens. Same ViewModels as the mobile screens (AuthRoot wires both);
+// only the layout differs. Each renders the form card that DesktopAuthFrame centres. Enter moves to the next
+// field and submits on the last one; Tab works as usual.
 
 /** Moves keyboard focus into the form when the screen appears (desktop: start typing right away). */
 @Composable
@@ -63,166 +69,246 @@ private fun AutoFocus(requester: FocusRequester) {
     LaunchedEffect(requester) { runCatching { requester.requestFocus() } }
 }
 
+private fun FocusRequester.tryFocus() {
+    runCatching { requestFocus() }
+}
+
 @Composable
-internal fun DesktopWelcome(
-    state: AuthUiState,
-    onLogIn: () -> Unit,
-    onSignUp: () -> Unit,
-    onForgotPassword: () -> Unit,
-    onCancel: () -> Unit,
+private fun DesktopPasswordToggle(visible: Boolean, onToggle: () -> Unit) {
+    DesktopTextLink(
+        if (visible) "Hide" else "Show",
+        onToggle,
+        Modifier.padding(end = 8.dp).semantics { contentDescription = if (visible) "Hide password" else "Show password" },
+    )
+}
+
+/** Labelled desktop field (with optional secure entry + Show/Hide). */
+@Composable
+private fun DesktopLabelledField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    imeAction: ImeAction,
+    onEnter: () -> Unit,
+    contentType: ContentType,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    keyboard: androidx.compose.foundation.text.KeyboardOptions = EmailKeyboard,
+    isError: Boolean = false,
+    password: Boolean = false,
+    passwordVisible: Boolean = false,
+    onTogglePasswordVisible: () -> Unit = {},
+    below: @Composable (() -> Unit)? = null,
 ) {
-    DesktopFormCard(
-        title = "Start building",
-        subtitle = "Sign in with your BAU Microsoft account. No new password to remember.",
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            (state.status as? AuthStatus.Error)?.let { AuthInlineError(it.message) }
-            // "Sign Up" and "Log In" only navigate; Microsoft sign-in starts from Sign Up's Continue.
-            DesktopPrimaryButton("Sign Up", onClick = onSignUp, loading = state.isSigningIn)
-            if (state.isSigningIn) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Finish signing in with Microsoft…", fontSize = 13.sp, color = BauColors.TextSecondary)
-                    DesktopTextLink("Cancel", onCancel, Modifier.padding(start = 6.dp))
-                }
-            } else {
-                DesktopSecondaryButton("Log In", onClick = onLogIn)
-            }
-        }
-        if (!state.isSigningIn) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                DesktopTextLink("Forgot password?", onForgotPassword)
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        DesktopFieldLabel(label)
+        DesktopTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = placeholder,
+            keyboardOptions = keyboard.copy(imeAction = imeAction),
+            onEnter = onEnter,
+            enabled = enabled,
+            isError = isError,
+            visualTransformation = if (password && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
+            trailingIcon = if (password) {
+                { DesktopPasswordToggle(passwordVisible, onTogglePasswordVisible) }
+            } else null,
+            modifier = modifier.semantics { this.contentType = contentType },
+        )
+        below?.invoke()
+    }
+}
+
+@Composable
+private fun CenteredLink(action: String, onClick: () -> Unit, lead: String? = null) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        DesktopTextLink(action, onClick, lead = lead)
+    }
+}
+
+@Composable
+private fun DesktopResendLine(secondsLeft: Long, canResend: Boolean, resending: Boolean, onResend: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        ResendCodeLine(secondsLeft, canResend, resending, onResend) { text, onClick, enabled ->
+            if (enabled) DesktopTextLink(text, onClick) else Text(text, fontSize = 14.sp, color = BauColors.TextTertiary)
         }
     }
 }
 
+@Composable
+internal fun DesktopWelcome(
+    onLogIn: () -> Unit,
+    onSignUp: () -> Unit,
+    onForgotPassword: () -> Unit,
+) {
+    DesktopFormCard(
+        title = "Start building",
+        subtitle = "Free for BAU students and staff. Sign up with your @stu.bau.edu or @bau.edu email.",
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            DesktopPrimaryButton("Sign Up", onClick = onSignUp)
+            DesktopSecondaryButton("Log In", onClick = onLogIn)
+        }
+        CenteredLink("Forgot password?", onForgotPassword)
+    }
+}
 
 @Composable
 internal fun DesktopLogin(
-    authState: AuthUiState,
     state: LoginUiState,
     onEmailChange: (String) -> Unit,
-    onContinue: () -> Unit,
-    onCancelSignIn: () -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onTogglePasswordVisible: () -> Unit,
+    onSubmit: () -> Unit,
     onForgotPassword: () -> Unit,
     onSignUp: () -> Unit,
     onBack: () -> Unit,
 ) {
     val focus = LocalFocusManager.current
     val emailFocus = remember { FocusRequester() }
-    val signingIn = authState.isSigningIn
-    val continueIfReady = {
-        if (!signingIn) {
+    val passwordFocus = remember { FocusRequester() }
+    val submit = {
+        if (state.canSubmit) {
             focus.clearFocus()
-            onContinue()
+            onSubmit()
         }
     }
     AutoFocus(emailFocus)
 
-    DesktopFormCard(
-        title = "Log In",
-        subtitle = "Welcome back. Continue with your BAU Microsoft account.",
-        onBack = onBack,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            DesktopFieldLabel("BAU email")
-            DesktopTextField(
-                value = state.email,
-                onValueChange = onEmailChange,
-                placeholder = "name@stu.bau.edu",
-                keyboardOptions = emailKeyboard.copy(imeAction = ImeAction.Go),
-                // Enter: continue to Microsoft with the typed address as the hint.
-                onEnter = continueIfReady,
-                enabled = !signingIn,
-                modifier = Modifier
-                    .focusRequester(emailFocus)
-                    .semantics { contentType = ContentType.Username + ContentType.EmailAddress },
-            )
-            DomainCheckLine(state.domainCheck)
-        }
+    DesktopFormCard(title = "Log In", subtitle = "Welcome back. Log in with your BAU email.", onBack = onBack) {
+        DesktopLabelledField(
+            label = "BAU email",
+            value = state.email,
+            onValueChange = onEmailChange,
+            placeholder = "name@stu.bau.edu",
+            imeAction = ImeAction.Next,
+            onEnter = { passwordFocus.tryFocus() },
+            contentType = ContentType.Username + ContentType.EmailAddress,
+            enabled = !state.submitting,
+            modifier = Modifier.focusRequester(emailFocus),
+            below = { if (state.domainCheck is DomainCheck.External) DomainCheckLine(state.domainCheck) },
+        )
+        DesktopLabelledField(
+            label = "Password",
+            value = state.password,
+            onValueChange = onPasswordChange,
+            placeholder = "Your password",
+            imeAction = ImeAction.Done,
+            onEnter = submit,
+            contentType = ContentType.Password,
+            enabled = !state.submitting,
+            keyboard = PasswordKeyboard,
+            modifier = Modifier.focusRequester(passwordFocus),
+            password = true,
+            passwordVisible = state.passwordVisible,
+            onTogglePasswordVisible = onTogglePasswordVisible,
+        )
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            (authState.status as? AuthStatus.Error)?.let { AuthInlineError(it.message) }
-            DesktopPrimaryButton("Continue with Microsoft", onClick = continueIfReady, loading = signingIn)
-            if (signingIn) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Finish signing in with Microsoft…", fontSize = 13.sp, color = BauColors.TextSecondary)
-                    DesktopTextLink("Cancel", onCancelSignIn, Modifier.padding(start = 6.dp))
-                }
-            } else {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    DesktopTextLink("Forgot password?", onForgotPassword)
-                }
+            state.error?.let { AuthInlineError(it) }
+            DesktopPrimaryButton("Log In", onClick = submit, enabled = state.canSubmit, loading = state.submitting, loadingDescription = "Logging in")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                DesktopTextLink("Forgot password?", onForgotPassword)
             }
         }
-        if (!signingIn) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                DesktopTextLink("Sign Up", onSignUp, lead = "New here?")
-            }
-        }
+        CenteredLink("Sign Up", onSignUp, lead = "New here?")
     }
 }
 
 @Composable
 internal fun DesktopSignUp(
-    authState: AuthUiState,
     state: SignUpUiState,
+    onNameChange: (String) -> Unit,
     onEmailChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onConfirmPasswordChange: (String) -> Unit,
+    onTogglePasswordVisible: () -> Unit,
     onTermsAcceptedChange: (Boolean) -> Unit,
-    onContinue: () -> Unit,
-    onCancelSignIn: () -> Unit,
+    onSubmit: () -> Unit,
     onLogIn: () -> Unit,
     onBack: () -> Unit,
 ) {
     val focus = LocalFocusManager.current
+    val nameFocus = remember { FocusRequester() }
     val emailFocus = remember { FocusRequester() }
-    val continueIfReady = {
-        if (state.canContinue && !authState.isSigningIn) {
+    val passwordFocus = remember { FocusRequester() }
+    val confirmFocus = remember { FocusRequester() }
+    val submit = {
+        if (state.canSubmit) {
             focus.clearFocus()
-            onContinue()
+            onSubmit()
         }
     }
-    AutoFocus(emailFocus)
+    val editable = !state.submitting
+    AutoFocus(nameFocus)
 
     DesktopFormCard(
         title = "Join BAU BUILD",
-        subtitle = "Free for BAU students and staff. You sign up with your BAU Microsoft account — no new password.",
+        subtitle = "Free for BAU students and staff. Sign up with your BAU email.",
         onBack = onBack,
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(BauColors.Paper, RoundedCornerShape(10.dp))
-                .border(1.dp, WebColors.Border, RoundedCornerShape(10.dp))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            AudienceRow("Students", "@stu.bau.edu", "Pick projects, build them, get them approved.")
-            AudienceRow("Staff", "@bau.edu", "Everything students can do, plus request projects.")
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            DesktopFieldLabel("BAU email (optional)")
-            DesktopTextField(
-                value = state.email,
-                onValueChange = onEmailChange,
-                placeholder = "name@stu.bau.edu",
-                keyboardOptions = emailKeyboard.copy(imeAction = ImeAction.Done),
-                onEnter = continueIfReady,
-                enabled = !authState.isSigningIn,
-                modifier = Modifier.focusRequester(emailFocus),
-            )
-            DomainCheckLine(state.domainCheck)
-        }
+        DesktopLabelledField(
+            label = "Full name",
+            value = state.name,
+            onValueChange = onNameChange,
+            placeholder = "Sam Carter",
+            imeAction = ImeAction.Next,
+            onEnter = { emailFocus.tryFocus() },
+            contentType = ContentType.PersonFullName,
+            enabled = editable,
+            keyboard = NameKeyboard,
+            modifier = Modifier.focusRequester(nameFocus),
+        )
+        DesktopLabelledField(
+            label = "BAU email",
+            value = state.email,
+            onValueChange = onEmailChange,
+            placeholder = "name@stu.bau.edu",
+            imeAction = ImeAction.Next,
+            onEnter = { passwordFocus.tryFocus() },
+            contentType = ContentType.NewUsername + ContentType.EmailAddress,
+            enabled = editable,
+            isError = state.domainCheck is DomainCheck.External || state.emailTaken,
+            modifier = Modifier.focusRequester(emailFocus),
+            below = { DomainCheckLine(state.domainCheck) },
+        )
+        DesktopLabelledField(
+            label = "Password",
+            value = state.password,
+            onValueChange = onPasswordChange,
+            placeholder = "At least 8 characters",
+            imeAction = ImeAction.Next,
+            onEnter = { confirmFocus.tryFocus() },
+            contentType = ContentType.NewPassword,
+            enabled = editable,
+            keyboard = PasswordKeyboard,
+            modifier = Modifier.focusRequester(passwordFocus),
+            password = true,
+            passwordVisible = state.passwordVisible,
+            onTogglePasswordVisible = onTogglePasswordVisible,
+            below = { PasswordRulesLine(state.passwordCheck) },
+        )
+        DesktopLabelledField(
+            label = "Confirm password",
+            value = state.confirmPassword,
+            onValueChange = onConfirmPasswordChange,
+            placeholder = "Type it again",
+            imeAction = ImeAction.Done,
+            onEnter = submit,
+            contentType = ContentType.NewPassword,
+            enabled = editable,
+            keyboard = PasswordKeyboard,
+            isError = state.confirmMismatch,
+            modifier = Modifier.focusRequester(confirmFocus),
+            password = true,
+            passwordVisible = state.passwordVisible,
+            onTogglePasswordVisible = onTogglePasswordVisible,
+            below = { if (state.confirmMismatch) AuthFieldHint("Passwords don’t match") },
+        )
         DesktopCheckboxRow(
             checked = state.termsAccepted,
-            enabled = !authState.isSigningIn,
+            enabled = editable,
             onCheckedChange = onTermsAcceptedChange,
             label = buildAnnotatedString {
                 append("I agree to the BAU BUILD ")
@@ -233,99 +319,196 @@ internal fun DesktopSignUp(
             },
         )
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            (authState.status as? AuthStatus.Error)?.let { AuthInlineError(it.message) }
-            DesktopPrimaryButton(
-                "Continue with Microsoft",
-                onClick = continueIfReady,
-                enabled = state.canContinue,
-                loading = authState.isSigningIn,
-            )
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (authState.isSigningIn) {
-                    Text("Finish signing in with Microsoft…", fontSize = 13.sp, color = BauColors.TextSecondary)
-                    DesktopTextLink("Cancel", onCancelSignIn, Modifier.padding(start = 6.dp))
-                } else if (!state.canContinue) {
-                    Text("Accept the terms to continue", fontSize = 13.sp, color = BauColors.TextSecondary)
+            if (state.emailTaken) {
+                Column(
+                    Modifier.fillMaxWidth().background(BauColors.WarningSoft, RoundedCornerShape(10.dp)).padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("An account with this email already exists.", fontSize = 14.sp, color = BauColors.WarningInk)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DesktopTextLink("Log In", onLogIn)
+                        Text(" instead?", fontSize = 14.sp, color = BauColors.WarningInk)
+                    }
                 }
             }
+            state.error?.let { AuthInlineError(it) }
+            DesktopPrimaryButton(
+                "Create Account",
+                onClick = submit,
+                enabled = state.canSubmit,
+                loading = state.submitting,
+                loadingDescription = "Creating your account",
+            )
         }
-        if (!authState.isSigningIn) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                DesktopTextLink("Log In", onLogIn, lead = "Already a member?")
-            }
-        }
+        CenteredLink("Log In", onLogIn, lead = "Already a member?")
     }
 }
 
 @Composable
-private fun AudienceRow(who: String, domain: String, detail: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.padding(top = 6.dp).size(8.dp).background(BauColors.Yellow, CircleShape))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(who) }
-                    append(" · ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(domain) }
-                },
-                fontSize = 15.sp, lineHeight = 20.sp, color = BauColors.Ink,
-            )
-            Text(detail, fontSize = 13.sp, lineHeight = 18.sp, color = BauColors.TextSecondary)
+internal fun DesktopVerifyEmail(
+    state: VerifyEmailUiState,
+    onCodeChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onResend: () -> Unit,
+    onChangeEmail: () -> Unit,
+) {
+    val codeFocus = remember { FocusRequester() }
+    AutoFocus(codeFocus)
+    DesktopFormCard(
+        title = "Check your BAU inbox",
+        subtitle = "Enter the 6-digit code we emailed you. It’s valid for 15 minutes.",
+        onBack = onChangeEmail,
+    ) {
+        Text(
+            buildAnnotatedString {
+                append("Code sent to ")
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = BauColors.Ink)) { append(state.email) }
+            },
+            fontSize = 14.sp, lineHeight = 20.sp, color = BauColors.TextSecondary,
+        )
+        VerificationCodeField(
+            code = state.code,
+            onCodeChange = onCodeChange,
+            enabled = !state.submitting,
+            isError = state.error != null,
+            focusRequester = codeFocus,
+            onDone = onSubmit,
+            cellHeight = 56.dp,
+            cellShape = RoundedCornerShape(8.dp),
+        )
+        Text("Can’t find it? Check your Junk or Spam folder.", fontSize = 13.sp, color = BauColors.TextTertiary)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            state.notice?.let { AuthNotice(it) }
+            state.error?.let { AuthInlineError(it) }
+            DesktopPrimaryButton("Verify Email", onClick = onSubmit, enabled = state.canSubmit, loading = state.submitting, loadingDescription = "Checking the code")
         }
+        DesktopResendLine(state.resendInSeconds, state.canResend, state.resending, onResend)
+        CenteredLink("Change it", onChangeEmail, lead = "Wrong email?")
     }
 }
 
 @Composable
 internal fun DesktopForgotPassword(
     state: ForgotPasswordUiState,
-    onResetWithMicrosoft: () -> Unit,
-    onContactIt: () -> Unit,
-    onBackToSignIn: () -> Unit,
+    onEmailChange: (String) -> Unit,
+    onSendCode: () -> Unit,
+    onCodeChange: (String) -> Unit,
+    onNewPasswordChange: (String) -> Unit,
+    onConfirmPasswordChange: (String) -> Unit,
+    onTogglePasswordVisible: () -> Unit,
+    onReset: () -> Unit,
+    onResend: () -> Unit,
+    onChangeEmail: () -> Unit,
+    onLogIn: () -> Unit,
     onBack: () -> Unit,
 ) {
-    DesktopFormCard(
-        title = "Forgot password?",
-        subtitle = "BAU BUILD doesn’t have its own password. You sign in with your BAU Microsoft account.",
-        onBack = onBack,
-    ) {
-        Text(
-            buildAnnotatedString {
-                append("Your password is the one for your ")
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = BauColors.Ink)) { append("BAU Microsoft account") }
-                append(" — the same as BAU email, Teams and Office. Resetting it there resets it everywhere, including here.")
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(BauColors.Paper, RoundedCornerShape(10.dp))
-                .border(1.dp, WebColors.Border, RoundedCornerShape(10.dp))
-                .padding(16.dp),
-            fontSize = 14.sp, lineHeight = 21.sp, color = BauColors.TextSecondary,
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            DesktopEyebrow("What to do")
-            DesktopStep(1, "Reset it with Microsoft", "Verify with your phone or backup email on Microsoft’s reset page.")
-            DesktopStep(2, "Come back and sign in", "Use “Log In” and continue with Microsoft.")
-            DesktopStep(3, "Still stuck?", "BAU IT can unlock your account or set up recovery options.")
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            state.unopenedLink?.let { link ->
-                AuthInlineError("Couldn’t open that link on this device.")
-                SelectionContainer(Modifier.align(Alignment.CenterHorizontally)) {
-                    Text(
-                        link.removePrefix("mailto:").substringBefore('?'),
-                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink,
-                    )
+    val focus = LocalFocusManager.current
+    when (state.step) {
+        ForgotPasswordStep.EnterEmail -> {
+            val emailFocus = remember { FocusRequester() }
+            AutoFocus(emailFocus)
+            val send = {
+                if (state.canSendCode) {
+                    focus.clearFocus()
+                    onSendCode()
                 }
             }
-            DesktopPrimaryButton("Reset with Microsoft", onResetWithMicrosoft)
-            DesktopSecondaryButton("Contact BAU IT", onContactIt)
+            DesktopFormCard(
+                title = "Forgot password?",
+                subtitle = "Enter your BAU email and we’ll send you a code to reset it.",
+                onBack = onBack,
+            ) {
+                DesktopLabelledField(
+                    label = "BAU email",
+                    value = state.email,
+                    onValueChange = onEmailChange,
+                    placeholder = "name@stu.bau.edu",
+                    imeAction = ImeAction.Send,
+                    onEnter = send,
+                    contentType = ContentType.Username + ContentType.EmailAddress,
+                    enabled = !state.submitting,
+                    modifier = Modifier.focusRequester(emailFocus),
+                    below = { if (state.domainCheck is DomainCheck.External) DomainCheckLine(state.domainCheck) },
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    state.error?.let { AuthInlineError(it) }
+                    DesktopPrimaryButton("Send code", onClick = send, enabled = state.canSendCode, loading = state.submitting, loadingDescription = "Sending the code")
+                }
+                CenteredLink("Log In", onLogIn, lead = "Remembered it?")
+            }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            DesktopTextLink("Back to sign in", onBackToSignIn, lead = "Remembered it?")
+        ForgotPasswordStep.Reset -> {
+            val codeFocus = remember { FocusRequester() }
+            val passwordFocus = remember { FocusRequester() }
+            val confirmFocus = remember { FocusRequester() }
+            AutoFocus(codeFocus)
+            val reset = {
+                if (state.canReset) {
+                    focus.clearFocus()
+                    onReset()
+                }
+            }
+            DesktopFormCard(
+                title = "Reset password",
+                subtitle = "Enter the code from your BAU inbox and choose a new password.",
+                onBack = onChangeEmail,
+            ) {
+                state.notice?.let { AuthNotice(it) }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    DesktopFieldLabel("6-digit code")
+                    VerificationCodeField(
+                        code = state.code,
+                        onCodeChange = { raw ->
+                            onCodeChange(raw)
+                            if (normalizeCode(raw).length == CODE_LENGTH) passwordFocus.tryFocus()
+                        },
+                        enabled = !state.submitting,
+                        focusRequester = codeFocus,
+                        onDone = { passwordFocus.tryFocus() },
+                        cellHeight = 52.dp,
+                        cellShape = RoundedCornerShape(8.dp),
+                    )
+                }
+                DesktopLabelledField(
+                    label = "New password",
+                    value = state.newPassword,
+                    onValueChange = onNewPasswordChange,
+                    placeholder = "At least 8 characters",
+                    imeAction = ImeAction.Next,
+                    onEnter = { confirmFocus.tryFocus() },
+                    contentType = ContentType.NewPassword,
+                    enabled = !state.submitting,
+                    keyboard = PasswordKeyboard,
+                    modifier = Modifier.focusRequester(passwordFocus),
+                    password = true,
+                    passwordVisible = state.passwordVisible,
+                    onTogglePasswordVisible = onTogglePasswordVisible,
+                    below = { PasswordRulesLine(state.passwordCheck) },
+                )
+                DesktopLabelledField(
+                    label = "Confirm new password",
+                    value = state.confirmPassword,
+                    onValueChange = onConfirmPasswordChange,
+                    placeholder = "Type it again",
+                    imeAction = ImeAction.Done,
+                    onEnter = reset,
+                    contentType = ContentType.NewPassword,
+                    enabled = !state.submitting,
+                    keyboard = PasswordKeyboard,
+                    isError = state.confirmMismatch,
+                    modifier = Modifier.focusRequester(confirmFocus),
+                    password = true,
+                    passwordVisible = state.passwordVisible,
+                    onTogglePasswordVisible = onTogglePasswordVisible,
+                    below = { if (state.confirmMismatch) AuthFieldHint("Passwords don’t match") },
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    state.error?.let { AuthInlineError(it) }
+                    DesktopPrimaryButton("Reset Password", onClick = reset, enabled = state.canReset, loading = state.submitting, loadingDescription = "Resetting your password")
+                }
+                DesktopResendLine(state.resendInSeconds, state.canResend, state.resending, onResend)
+                CenteredLink("Change it", onChangeEmail, lead = "Wrong email?")
+            }
         }
     }
 }
@@ -334,21 +517,16 @@ internal fun DesktopForgotPassword(
 internal fun DesktopNotAllowed(
     status: AuthStatus,
     onUseAnotherAccount: () -> Unit,
-    onSignOut: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val (email, title, body) = when (status) {
         is AuthStatus.RequiresPayment -> Triple(
             status.email,
             "This account needs a paid plan",
             "BAU BUILD is free for BAU students and staff. Accounts from outside BAU need a paid plan, " +
-                "which isn't available in the app yet. Sign in with your BAU account to keep going for free.",
+                "which isn't available in the app yet. Log in with your BAU email to keep going for free.",
         )
-        is AuthStatus.BlockedDomain -> Triple(
-            status.email,
-            "BAU BUILD is open to BAU students and staff for now",
-            "You signed in with an account from outside BAU. Use your BAU Microsoft account to join. " +
-                "We plan to open BAU BUILD to everyone later.",
-        )
+        is AuthStatus.BlockedDomain -> Triple(status.email, "BAU BUILD is open to BAU students and staff for now", NOT_ALLOWED_BODY)
         else -> return
     }
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -365,29 +543,17 @@ internal fun DesktopNotAllowed(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                DesktopEyebrow("Signed in as", color = BauColors.TextTertiary)
+                DesktopEyebrow("Email", color = BauColors.TextTertiary)
                 SelectionContainer {
                     Text(email.ifBlank { UNKNOWN_ACCOUNT_LABEL }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink)
                 }
                 Box(Modifier.height(6.dp))
-                DomainRule("Students", "@stu.bau.edu")
-                DomainRule("Staff", "@bau.edu")
+                Text(MSG_BAU_ONLY, fontSize = 14.sp, lineHeight = 20.sp, color = BauColors.TextSecondary)
             }
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                DesktopPrimaryButton("Use My BAU Account", onUseAnotherAccount)
-                DesktopSecondaryButton("Sign Out", onSignOut)
+                DesktopPrimaryButton("Log In with a BAU Email", onUseAnotherAccount)
+                DesktopSecondaryButton("Back", onDismiss)
             }
         }
     }
-}
-
-@Composable
-private fun DomainRule(who: String, domain: String) {
-    Text(
-        buildAnnotatedString {
-            append("$who sign in with ")
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = BauColors.Ink)) { append(domain) }
-        },
-        fontSize = 14.sp, lineHeight = 20.sp, color = BauColors.TextSecondary,
-    )
 }

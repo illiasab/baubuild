@@ -1,103 +1,113 @@
 package com.vesper.baubuild.feature.auth
 
-import com.vesper.baubuild.core.auth.MicrosoftAuthorization
-import com.vesper.baubuild.core.auth.MicrosoftSignIn
-import com.vesper.baubuild.core.model.AccountKind
-import com.vesper.baubuild.core.model.AccountPolicy
+import com.vesper.baubuild.core.network.ApiException
 import com.vesper.baubuild.core.session.InMemoryTokenStore
 import com.vesper.baubuild.core.session.SessionState
 import com.vesper.baubuild.core.session.SessionStore
 import com.vesper.baubuild.data.fake.FakeAuthRepository
-import kotlinx.coroutines.Dispatchers
+import com.vesper.baubuild.core.model.AccountPolicy
+import com.vesper.baubuild.data.repository.AuthOutcome
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
-/** Log In is Microsoft-only: the form holds the email (login hint); [AuthViewModel] runs the sign-in. */
 @OptIn(ExperimentalCoroutinesApi::class)
-class LoginViewModelTest {
-    private val dispatcher = StandardTestDispatcher()
+class LoginViewModelTest : ViewModelTest() {
     private val session = SessionStore(InMemoryTokenStore())
-    private val policy = AccountPolicy()
+    private val repo = FakeAuthRepository(session = session)
+    private val nav = RecordingNavigator()
+    private val vm by lazy { LoginViewModel(repo, AccountPolicy(), nav) }
 
-    @BeforeTest fun setUp() = Dispatchers.setMain(dispatcher)
-    @AfterTest fun tearDown() = Dispatchers.resetMain()
-
-    private fun test(block: suspend TestScope.() -> Unit) = runTest(dispatcher) { block() }
-
-    @Test
-    fun domainHintMatchesSignUp() = test {
-        val vm = LoginViewModel(policy)
-        vm.onEmailChange("sam.carter@stu")
-        assertEquals(DomainCheck.None, vm.state.value.domainCheck)
-        assertNull(vm.state.value.loginHint)
-        vm.onEmailChange("sam.carter@stu.bau.edu")
-        assertEquals(DomainCheck.Student, vm.state.value.domainCheck)
-        vm.onEmailChange("dr.aydin@bau.edu")
-        assertEquals(DomainCheck.Staff, vm.state.value.domainCheck)
-        vm.onEmailChange("alex@gmail.com")
-        assertEquals(DomainCheck.External(requiresPayment = false), vm.state.value.domainCheck)
+    private fun fill(email: String, password: String) {
+        vm.onEmailChange(email)
+        vm.onPasswordChange(password)
     }
 
     @Test
-    fun loginHintIsTrimmedCompleteAddress() = test {
-        val vm = LoginViewModel(policy)
-        vm.onEmailChange("  dr.aydin@bau.edu ")
-        assertEquals("dr.aydin@bau.edu", vm.state.value.loginHint)
+    fun needsACompleteEmailAndAPassword() {
+        assertFalse(vm.state.value.canSubmit)
+        fill("sam@stu", "x")
+        assertFalse(vm.state.value.canSubmit)
+        fill("sam@stu.bau.edu", "")
+        assertFalse(vm.state.value.canSubmit)
+        fill("sam@stu.bau.edu", "x")
+        assertTrue(vm.state.value.canSubmit)
     }
 
     @Test
-    fun continueWithMicrosoftUsesTheEmailAsLoginHintAndSignsIn() = test {
-        val hints = mutableListOf<String?>()
-        val microsoft = object : MicrosoftSignIn {
-            override suspend fun signIn(loginHint: String?): MicrosoftAuthorization {
-                hints += loginHint
-                return MicrosoftAuthorization("fake-code:$loginHint", "verifier", "app://auth")
-            }
-        }
-        val auth = AuthViewModel(microsoft, FakeAuthRepository(policy), session, policy)
-        auth.navigateTo(AuthScreen.Login)
-        val login = LoginViewModel(policy)
-        login.onEmailChange("dr.aydin@bau.edu")
-
-        auth.signIn(login.state.value.loginHint); advanceUntilIdle() // what AuthRoot wires to the button
-
-        assertEquals(listOf<String?>("dr.aydin@bau.edu"), hints)
-        assertEquals(AccountKind.BauStaff, assertIs<SessionState.SignedIn>(session.state.value).user.kind)
+    fun successSignsIn() = test {
+        repo.addAccount("dr.aydin@bau.edu", "teach2024", name = "Dr. Aydin")
+        fill("dr.aydin@bau.edu", "teach2024")
+        vm.submit()
+        assertTrue(vm.state.value.submitting)
+        advanceUntilIdle()
+        assertFalse(vm.state.value.submitting)
+        assertEquals("dr.aydin@bau.edu", assertIs<SessionState.SignedIn>(session.state.value).user.email)
     }
 
     @Test
-    fun refusedAccountFromLogInShowsBlockedScreenWithTypedEmail() = test {
-        val microsoft = object : MicrosoftSignIn {
-            override suspend fun signIn(loginHint: String?) = MicrosoftAuthorization("code", "verifier", "app://auth")
-        }
-        val repo = StubExchangeRepository { com.vesper.baubuild.data.repository.AuthExchangeResult.NotAllowed("", AccountPolicy.Access.NotYetAvailable) }
-        val auth = AuthViewModel(microsoft, repo, session, policy)
-        auth.navigateTo(AuthScreen.Login)
-        auth.signIn("alex@gmail.com"); advanceUntilIdle()
-        val blocked = assertIs<AuthStatus.BlockedDomain>(auth.state.value.status)
-        assertEquals("alex@gmail.com", blocked.email)
-
-        auth.useAnotherAccount(); advanceUntilIdle() // back to the Log In form to type a BAU address
-        assertEquals(AuthStatus.Idle, auth.state.value.status)
-        assertEquals(AuthScreen.Login, auth.state.value.screen)
+    fun invalidCredentialsIsOneGenericMessage() = test {
+        repo.addAccount("sam@stu.bau.edu", "buildit42")
+        fill("sam@stu.bau.edu", "wrong")
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_INVALID_CREDENTIALS, vm.state.value.error)
+        fill("nobody@stu.bau.edu", "buildit42")
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_INVALID_CREDENTIALS, vm.state.value.error)
+        assertEquals("buildit42", vm.state.value.password) // input kept
     }
-}
 
-internal class StubExchangeRepository(
-    private val exchange: suspend () -> com.vesper.baubuild.data.repository.AuthExchangeResult,
-) : com.vesper.baubuild.data.repository.AuthRepository {
-    override suspend fun exchange(code: String, codeVerifier: String, redirectUri: String) = exchange()
-    override suspend fun me() = com.vesper.baubuild.data.fake.FakeData.sam
-    override suspend fun signOut() = Unit
+    @Test
+    fun unverifiedAccountGoesToVerifyEmail() = test {
+        repo.addAccount("new@stu.bau.edu", "buildit42", verified = false)
+        fill("new@stu.bau.edu", "buildit42")
+        vm.submit(); advanceUntilIdle()
+        assertEquals<List<Pair<String, Long?>>>(listOf("new@stu.bau.edu" to FakeAuthRepository.RESEND_AFTER), nav.verifications)
+        assertEquals<String?>(null, vm.state.value.error)
+    }
+
+    @Test
+    fun lockoutShowsMinutesToWait() = test {
+        fill("sam@stu.bau.edu", "x")
+        repo.nextLogin = AuthOutcome.TooManyAttempts(retryAfterSeconds = 840)
+        vm.submit(); advanceUntilIdle()
+        assertEquals("Too many attempts. Try again in 14 min.", vm.state.value.error)
+        repo.nextLogin = AuthOutcome.TooManyAttempts(retryAfterSeconds = 20)
+        vm.submit(); advanceUntilIdle()
+        assertEquals("Too many attempts. Try again in 1 min.", vm.state.value.error)
+        repo.nextLogin = AuthOutcome.TooManyAttempts(null)
+        vm.submit(); advanceUntilIdle()
+        assertEquals("Too many attempts. Try again in a few minutes.", vm.state.value.error)
+    }
+
+    @Test
+    fun serverDomainRefusalOpensNotAllowed() = test {
+        fill("sam@stu.bau.edu", "x")
+        repo.nextLogin = AuthOutcome.DomainNotAllowed
+        vm.submit(); advanceUntilIdle()
+        assertEquals(listOf("sam@stu.bau.edu"), nav.notAllowed)
+    }
+
+    @Test
+    fun externalEmailIsRefusedLocally() = test {
+        fill("alex@gmail.com", "x")
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_USE_BAU_EMAIL, vm.state.value.error)
+        assertTrue(repo.calls.isEmpty())
+    }
+
+    @Test
+    fun unreachableApiIsANetworkMessage() = test {
+        fill("sam@stu.bau.edu", "x")
+        repo.nextError = ApiException(503, "http_503", "down")
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_NETWORK, vm.state.value.error)
+        repo.nextError = ApiException(500, "internal", "boom")
+        vm.submit(); advanceUntilIdle()
+        assertEquals(MSG_GENERIC, vm.state.value.error)
+    }
 }

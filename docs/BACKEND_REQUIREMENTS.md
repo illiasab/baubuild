@@ -1,16 +1,10 @@
 # BAU BUILD — backend requirements (API v1, Go)
 
-> **Blocking right now (checked 2026-11-19, `https://api.baubuild.vesperconnect.org`):** the Go API is live
-> (`GET /v1/config` → 200), but `POST /v1/auth/microsoft/exchange` → **503 `microsoft_not_configured`**. Real sign-in
-> needs the Entra app registration: client ID + tenant ID shared with the app team, redirect URIs
-> `com.vesper.baubuild://auth` and `http://127.0.0.1` under "Mobile and desktop applications", "Allow public client
-> flows" on, `MICROSOFT_CLIENT_ID` set on the server, **no client secret** (public clients). Also: `GET /healthz`
-> currently answers `401 unauthorized` — health checks must be public for load balancers (zero-downtime deploys).
-> **Go server bug:** `Identify` in `server/go/domain.go` returns `503 microsoft_not_configured` in **both** branches —
-> even with `MICROSOFT_CLIENT_ID` set it never redeems the code. Implement: POST
-> `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token` (`client_id`, `grant_type=authorization_code`, `code`,
-> `code_verifier`, `redirect_uri`, scope `openid profile email offline_access User.Read`, **no client secret**), then
-> Graph `GET /me` (`mail` / `userPrincipalName`, `displayName`) → apply the domain rule.
+> **Blocking right now (2026-11-19):** the apps now sign in with **email + password + email-code verification**
+> (§1). Until `POST /v1/auth/register`, `verify-email`, `resend-code`, `login`, `password/forgot` and
+> `password/reset` exist on `https://api.baubuild.vesperconnect.org`, nobody can sign in. Microsoft sign-in was
+> removed from the apps (`/v1/auth/microsoft/exchange` is no longer called). Also: `GET /healthz` currently answers
+> `401 unauthorized` — health checks must be public for load balancers (zero-downtime deploys).
 
 Everything the apps (iOS, Android, macOS, Windows, Linux) need from the backend. Built on the current API
 (`docs/openapi.json`, `docs/index.html`); items marked **✅ exists** are already there, **🆕** are new, **✏️** change
@@ -40,11 +34,22 @@ an existing endpoint. Language-agnostic — written for the Go rewrite.
 
 ## 1. Auth, session, account
 
-| | Endpoint | Notes |
+Plain email + password accounts, verified with a 6-digit code sent to the email. **Only `@stu.bau.edu` (students) and
+`@bau.edu` (staff) may register and use the app.** All bodies are JSON; errors are `{"error":{"code","message"}}`
+(rate-limit errors also carry `retry_after_s`, inside `error`, plus the `Retry-After` header);
+`device = {platform: ios|macos|android|windows|linux, app_version}`.
+Token responses are `{access_token, refresh_token, expires_in, user, entitlement}` (same shape as today's refresh).
+
+| | Endpoint | Contract |
 |---|---|---|
-| ✅ | `POST /v1/auth/microsoft/exchange` | PKCE code → `{access_token, refresh_token, expires_in, user, entitlement}`; `403 domain_not_allowed`; set `MICROSOFT_CLIENT_ID` (today `503 microsoft_not_configured`). |
-| ✅ | `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET/DELETE /v1/auth/sessions` | Refresh rotation; reuse → `401 refresh_reused`. |
-| — | Email + password login | **Not needed** — decided Microsoft only; apps pass the email as `login_hint`. |
+| 🆕 | `POST /v1/auth/register {name, email, password, device}` | → `202 {verification_required: true, email, resend_after_s}` and emails a 6-digit code. Errors: `400 invalid_body`, `403 domain_not_allowed` (only stu.bau.edu / bau.edu), `409 email_taken` (a **verified** account exists; re-registering an unverified email replaces it and sends a new code), `422 weak_password` (min 8 chars, ≥1 letter + ≥1 digit; the server is authoritative). |
+| 🆕 | `POST /v1/auth/verify-email {email, code, device}` | → `200` tokens (signs in). Errors: `400 invalid_code`, `410 code_expired` (codes valid 15 min), `429 too_many_attempts` (5 wrong tries → that code is dead, a new one is needed). |
+| 🆕 | `POST /v1/auth/resend-code {email, purpose: "verify"\|"reset"}` | → `202 {resend_after_s}` (invalidates the previous code). `429 too_many_requests` with `retry_after_s`. Same 202 whether or not the account exists. |
+| 🆕 | `POST /v1/auth/login {email, password, device}` | → `200` tokens. Errors: `401 invalid_credentials` (also for an unknown email — no enumeration), `403 email_not_verified` (the server re-sends a code; include `resend_after_s` in `error`), `403 domain_not_allowed`, `429 too_many_attempts` (lockout, with `retry_after_s`). |
+| 🆕 | `POST /v1/auth/password/forgot {email}` | → always `202 {resend_after_s}` (no enumeration); emails a reset code if the account exists. `429 too_many_requests` only for rate limiting. |
+| 🆕 | `POST /v1/auth/password/reset {email, code, new_password, device}` | → `200` tokens (signs in) and **revokes all other sessions**. Errors: `400 invalid_code`, `410 code_expired`, `422 weak_password`, `429 too_many_attempts`. |
+| ✅ | `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET /v1/me`, `GET/DELETE /v1/auth/sessions` | Unchanged. Refresh rotation; reuse → `401 refresh_reused`. Refresh also answers `403 domain_not_allowed` when the account's domain is no longer allowed (the app signs out and explains). |
+| ❌ | `POST /v1/auth/microsoft/exchange` | No longer used by the apps. Microsoft sign-in can come back later as an extra option. |
 | ✅ | `GET /v1/me/entitlement`, billing endpoints | Phase 2 (paid non-BAU users). |
 | ✏️ | `GET /v1/me` | Add `roles[]`, `display_name`, `avatar_url`, `github_username`, `department`, `title`, `notification_preferences`. |
 | ✏️ | `PATCH /v1/me` | Today only `bio` + `skills` (bio can't be empty). Accept `display_name`, `bio` (empty allowed), `skills`, `github_username`. |
@@ -52,6 +57,24 @@ an existing endpoint. Language-agnostic — written for the Go rewrite.
 | 🆕 | `GET/PATCH /v1/me/notification-preferences` | Staff: `project_done`, `student_joined`, `blocker_raised`; students: `join_approved`, `review_update`, `urgent_inquiry`. |
 | ✅ | `POST/DELETE /v1/devices` | APNs (iOS/macOS) + FCM (Android) tokens; desktop Windows/Linux via in-app SSE only. |
 | 🆕 | `GET /v1/me/export`, `DELETE /v1/me` | KVKK/GDPR. |
+
+**Server requirements (🆕):**
+- **Passwords** hashed with **argon2id** (or bcrypt cost ≥ 12); never logged, never returned, never in error messages
+  or traces (scrub request bodies of `password` / `new_password` / `code` in logs).
+- **Codes**: 6 random digits from a CSPRNG, stored **hashed**, **single-use**, **15-minute** expiry, max 5 wrong tries per
+  code; a new code invalidates the previous one. Separate purposes (`verify`, `reset`).
+- **Rate limits per email and per IP** on register, login, resend-code, forgot, verify and reset (e.g. login: 5 failures
+  / 15 min per email → `429 too_many_attempts` with `retry_after_s`; code e-mails: 1 per 60 s, 5 per hour per email).
+- **Role from the domain**: `stu.bau.edu` → `student`, `bau.edu` → `staff` (compare the lower-cased domain exactly;
+  no subdomains). Emails are case-insensitive and trimmed.
+- **`domain_not_allowed` is enforced on usage, not only registration**: on login **and on every token refresh** (so a
+  rule change takes effect within one access-token lifetime).
+- **No enumeration**: login answers `invalid_credentials` for unknown emails; forgot-password and resend-code always 202.
+- **Transactional email** sender (e.g. Amazon SES / SendGrid / Microsoft 365 SMTP) on a domain with **SPF + DKIM**
+  (and DMARC) so BAU's mail servers accept it; plain-text + HTML templates ("Your BAU BUILD code is 123456. It expires
+  in 15 minutes."); the code in the subject line helps iOS / Android one-time-code autofill.
+- Password reset revokes every other session (refresh tokens) of that user.
+- Optional later: Microsoft sign-in can come back as an additional option for the same accounts.
 
 ---
 
@@ -221,12 +244,10 @@ device registration for push. The app will adopt these next.
 ## 8. Contract mismatches found while wiring the app (fix in the Go rewrite)
 
 - **Response schemas**: `docs/openapi.json` has no response schemas (user, token pair, config, projects…) and no request
-  body for `/v1/auth/refresh`; `401 microsoft_rejected` (exchange) isn't documented. Please publish full schemas.
+  body for `/v1/auth/refresh`. Please publish full schemas, including the new §1 auth routes.
 - **`403 domain_not_allowed`** should include the refused `email` (and `access`: `not_yet_available | requires_payment`).
 - **Refresh errors**: an expired/unknown refresh token returns `401 unauthorized`, a reused one `401 refresh_reused` —
   document both (the app signs out on either).
-- **Microsoft**: the server redeems the code with scope `User.Read` and calls Graph; **don't send `client_secret`**
-  for public-client (mobile/desktop) redirect URIs — Entra rejects it (AADSTS700025).
 - **`/v1/me`**: no `score`, `earnings`, `approved_projects` (only in `/v1/me/stats` — embed or document), no
   `github_username`, `avatar` always null.
 - **Projects**: `repo.name` is a bare name — send `repo.full_name` (`bau-build/<repo>`); `repo.connected` means "this
@@ -245,7 +266,7 @@ device registration for push. The app will adopt these next.
 
 ## 9. Found in the Go server (2026-11-19)
 
-- **Sign-in stub**: see the blocking note at the top (`Identify` never redeems the Microsoft code).
+- **Auth routes**: the §1 email + password routes don't exist yet (see the blocking note at the top).
 - **GitHub token route missing**: the app calls `PUT /v1/integrations/github/token` (§4, `docs/BACKEND_GITHUB_TOKEN.md`);
   the Go server only has the OAuth connect → callback flow. Add the token route (the app keeps working and retries until
   it exists). `features.github` in `/v1/config` is `false` today; the app skips linking while it's false.

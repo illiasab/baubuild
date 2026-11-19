@@ -16,6 +16,12 @@ sealed interface SessionState {
     data class SignedIn(val user: User) : SessionState
 }
 
+/** Why the app signed the user out on its own (not from a "Sign Out" tap). Shown once by the auth screens. */
+sealed interface SignOutReason {
+    /** The backend answered `403 domain_not_allowed` (e.g. on token refresh): the account's domain may not use the app. */
+    data class DomainNotAllowed(val email: String) : SignOutReason
+}
+
 /** Persists one secret string. Platform implementations use Keychain / Keystore / OS vault. */
 interface TokenStore {
     suspend fun read(): String?
@@ -31,7 +37,7 @@ class InMemoryTokenStore : TokenStore {
 }
 
 /**
- * The backend's opaque token pair (`POST /v1/auth/microsoft/exchange`, `POST /v1/auth/refresh`).
+ * The backend's opaque token pair (`POST /v1/auth/login`, `verify-email`, `password/reset`, `POST /v1/auth/refresh`).
  * [refreshToken] is null for legacy sessions and tests; [expiresAtMillis] (epoch ms) is null when unknown.
  */
 @Serializable
@@ -79,6 +85,18 @@ class SessionStore(
     var tokens: AuthTokens? = null
         private set
 
+    private val _signOutReason = MutableStateFlow<SignOutReason?>(null)
+
+    /** Set when the app signed out on its own ([signOut] with a reason); cleared by [consumeSignOutReason] / sign-in. */
+    val signOutReason: StateFlow<SignOutReason?> = _signOutReason.asStateFlow()
+
+    fun consumeSignOutReason() {
+        _signOutReason.value = null
+    }
+
+    /** Email of the signed-in user, or "" (e.g. while restoring without a cached user). */
+    fun signedInEmail(): String = (state.value as? SessionState.SignedIn)?.user?.email.orEmpty()
+
     /** Current access token (Bearer). */
     val token: String? get() = tokens?.accessToken
 
@@ -122,6 +140,7 @@ class SessionStore(
     suspend fun signedIn(tokens: AuthTokens, user: User) {
         persist(tokens, user)
         this.tokens = tokens
+        _signOutReason.value = null
         _state.value = SessionState.SignedIn(user)
     }
 
@@ -144,8 +163,9 @@ class SessionStore(
         if (_state.value is SessionState.SignedIn) _state.value = SessionState.SignedIn(user)
     }
 
-    suspend fun signOut() {
+    suspend fun signOut(reason: SignOutReason? = null) {
         tokens = null
+        _signOutReason.value = reason
         runCatchingNonCancel { tokenStore.clear() }
         _state.value = SessionState.SignedOut
     }

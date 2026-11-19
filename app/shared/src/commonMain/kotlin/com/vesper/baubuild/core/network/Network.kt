@@ -2,6 +2,7 @@ package com.vesper.baubuild.core.network
 
 import com.vesper.baubuild.core.session.AuthTokens
 import com.vesper.baubuild.core.session.SessionStore
+import com.vesper.baubuild.core.session.SignOutReason
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.HttpClientCall
@@ -132,19 +133,45 @@ class BauAuthConfig {
     var refreshMarginMillis: Long = 60_000
 }
 
-/** Endpoints that never trigger a refresh-and-retry: they are the auth flow itself. */
-private val NO_REFRESH_SUFFIXES = listOf("/v1/auth/microsoft/exchange", "/v1/auth/refresh", "/v1/auth/logout")
+/** How [BauAuth] treats a request path. */
+internal enum class AuthRouteKind {
+    /** Everything else: Bearer token, proactive refresh, refresh-and-retry once on 401. */
+    Protected,
+    /** `POST /v1/auth/logout`: Bearer token (it revokes that session), but a 401 never triggers a refresh. */
+    BearerNoRefresh,
+    /**
+     * The public auth flow — `/v1/auth/register`, `verify-email`, `resend-code`, `login`, `password/forgot`,
+     * `password/reset`, `refresh` and any future `/v1/auth/…` route: no Bearer token, and a 401 (e.g.
+     * `invalid_credentials`) is the answer itself, never a reason to refresh.
+     */
+    Public,
+}
 
-/** Endpoints that must not carry the Bearer token (public, token-issuing). */
-private val NO_BEARER_SUFFIXES = listOf("/v1/auth/microsoft/exchange", "/v1/auth/refresh")
+/**
+ * Classifies a normalised path ("/v1/auth/login", possibly under a base-URL prefix). Session management
+ * (`/v1/auth/sessions…`) is a normal authenticated API.
+ */
+internal fun authRouteKind(path: String): AuthRouteKind {
+    val marker = "/v1/auth/"
+    val at = path.indexOf(marker)
+    if (at < 0) return AuthRouteKind.Protected
+    val route = path.substring(at + marker.length).trimEnd('/')
+    return when {
+        route == "logout" -> AuthRouteKind.BearerNoRefresh
+        route == "sessions" || route.startsWith("sessions/") -> AuthRouteKind.Protected
+        else -> AuthRouteKind.Public
+    }
+}
 
 /**
  * Bearer auth + token rotation for the BAU BUILD backend. See [createHttpClient].
  *
  * On a 401 from any endpoint except the auth flow itself, one refresh runs (a [Mutex] makes it single-flight:
  * concurrent 401s wait for it and reuse its result) and the request is retried once with the new access token.
- * A rejected refresh (401, e.g. `refresh_reused` or `unauthorized`, or 400) signs the session out; a network
- * error or 5xx during refresh keeps the session (zero downtime) and surfaces the original 401.
+ * A rejected refresh (401, e.g. `refresh_reused` or `unauthorized`, or 400) signs the session out; a `403
+ * domain_not_allowed` (the account's domain is no longer allowed to use the app) signs out with
+ * [SignOutReason.DomainNotAllowed] so the auth screens can explain it; a network error or 5xx during refresh keeps
+ * the session (zero downtime) and surfaces the original 401. The public auth routes ([authRouteKind]) are left alone.
  */
 val BauAuth = createClientPlugin("BauAuth", ::BauAuthConfig) {
     val session = pluginConfig.session
@@ -178,6 +205,10 @@ val BauAuth = createClientPlugin("BauAuth", ::BauAuthConfig) {
                 // Reuse detected / expired / revoked: the pair is dead, sign in again.
                 if (session.tokens == current) session.signOut()
                 null
+            } else if (e.status == 403 && e.code == "domain_not_allowed") {
+                // Usage is enforced on every refresh, not only at registration.
+                if (session.tokens == current) session.signOut(SignOutReason.DomainNotAllowed(session.signedInEmail()))
+                null
             } else {
                 current // backend hiccup: keep the session
             }
@@ -192,10 +223,11 @@ val BauAuth = createClientPlugin("BauAuth", ::BauAuthConfig) {
         val ours = apiHost != null && request.url.host == apiHost
         // A caller-supplied Authorization header wins; ours (from an earlier attempt, e.g. HttpRequestRetry) is replaced.
         val ownHeader = request.headers.contains(HttpHeaders.Authorization) && !request.attributes.contains(BearerFromSession)
-        if (!ours || ownHeader || NO_BEARER_SUFFIXES.any { path.endsWith(it) }) return@on proceed(request)
+        val kind = authRouteKind(path)
+        if (!ours || ownHeader || kind == AuthRouteKind.Public) return@on proceed(request)
 
         var sent = session.tokens
-        val refreshable = NO_REFRESH_SUFFIXES.none { path.endsWith(it) }
+        val refreshable = kind == AuthRouteKind.Protected
         if (sent != null && refreshable && sent.refreshToken != null && sent.expiresSoon(session.now(), margin)) {
             sent = refresh(sent, signOutOnReject = true)
         }

@@ -1,8 +1,5 @@
 package com.vesper.baubuild.di
 
-import com.vesper.baubuild.core.auth.MicrosoftAuthConfig
-import com.vesper.baubuild.core.auth.MicrosoftOAuthSignIn
-import com.vesper.baubuild.core.auth.MicrosoftSignIn
 import com.vesper.baubuild.core.model.AccountPolicy
 import com.vesper.baubuild.core.network.ApiConfig
 import com.vesper.baubuild.core.network.createHttpClient
@@ -38,15 +35,13 @@ class AppGraph(
     val policy: AccountPolicy = AccountPolicy(),
     /** Keychain / Keystore / prefs. Tests pass [com.vesper.baubuild.core.session.InMemoryTokenStore]. */
     tokenStore: TokenStore = platformTokenStore(),
-    val microsoftAuthConfig: MicrosoftAuthConfig = MicrosoftAuthConfig(),
 ) {
     val session = SessionStore(tokenStore)
 
-    /** Browser OAuth (PKCE). Refuses to start with an inline error while [microsoftAuthConfig] is a placeholder. */
-    val microsoftSignIn: MicrosoftSignIn by lazy { MicrosoftOAuthSignIn(microsoftAuthConfig) }
     val httpClient by lazy { createHttpClient(config, session) }
 
-    val authRepository: AuthRepository by lazy { HttpAuthRepository(httpClient, policy) }
+    /** Email + password accounts with email-code verification; stores the session when tokens come back. */
+    val authRepository: AuthRepository by lazy { HttpAuthRepository(httpClient, session, policy) }
 
     /** `/v1/config`: minimum versions, maintenance banner, feature flags. Fails open. */
     val appConfigRepository: AppConfigRepository by lazy { HttpAppConfigRepository(httpClient) }
