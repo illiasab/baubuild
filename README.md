@@ -2,12 +2,12 @@
 
 ## Backend
 
-The HTTP API is in `server/bau` (`/v1` routes, domain rules, and tests). The reference is in `docs/index.html`, and the OpenAPI spec is `docs/openapi.json`.
+The HTTP API is the Go server in `server/go`. It uses the same `/v1` routes, SQLite file, and rules. The reference is in `docs/index.html`, and the OpenAPI spec is `docs/openapi.json`.
 
 ```bash
-cd server/bau
-python3 -m unittest test_logic.py test_api.py
-PORT=8080 python3 server.py
+cd server/go
+go test ./...
+PORT=8080 go run .
 ```
 
 ## Kotlin Multiplatform app
