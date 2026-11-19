@@ -166,29 +166,19 @@ func (a *app) withAuth(r *http.Request, path string) (int, any, string, error) {
 	if r.Method == http.MethodPost && (path == "/v1/auth/register" || path == "/v1/auth/verify-email" || path == "/v1/auth/resend-code" || path == "/v1/auth/login" || path == "/v1/auth/password/forgot" || path == "/v1/auth/password/reset" || path == "/v1/auth/refresh") {
 		status, body, err := a.withTx(func(tx *sql.Tx) (int, any, error) {
 			body := readBody(r)
-			ip := clientIP(r)
 			switch path {
 			case "/v1/auth/register":
-				out, err := registerAccount(tx, body, ip)
-				return 202, out, err
-			case "/v1/auth/verify-email":
-				out, err := verifyEmail(tx, body)
+				out, err := registerAccount(tx, body)
 				return 200, out, err
-			case "/v1/auth/resend-code":
-				out, err := resendCode(tx, body, ip)
-				return 202, out, err
 			case "/v1/auth/login":
-				out, err := loginAccount(tx, body, ip)
+				out, err := loginAccount(tx, body)
 				return 200, out, err
-			case "/v1/auth/password/forgot":
-				out, err := forgotPassword(tx, body, ip)
-				return 202, out, err
-			case "/v1/auth/password/reset":
-				out, err := resetPassword(tx, body)
-				return 200, out, err
-			default:
+			case "/v1/auth/refresh":
 				out, err := refresh(tx, body)
 				return 200, out, err
+			default:
+				// verify-email, resend-code, password/forgot, password/reset: no email step any more.
+				return 0, nil, emailCodesGone()
 			}
 		})
 		return status, body, "", err
@@ -324,10 +314,7 @@ func (a *app) handle(tx *sql.Tx, r *http.Request, path string, user, session map
 		}
 		items := []any{}
 		for _, row := range rows {
-			items = append(items, map[string]any{
-				"id": row["id"], "project_id": row["project_id"], "title": row["title"],
-				"status": row["status"], "lane": row["lane"], "due_at": row["due_at"],
-			})
+			items = append(items, taskJSON(row))
 		}
 		return 200, map[string]any{"items": items}, nil
 	case r.Method == http.MethodPost && projectAction.MatchString(path):

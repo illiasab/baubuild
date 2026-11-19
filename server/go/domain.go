@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -243,7 +243,9 @@ func publicUserEmail(tx *sql.Tx, user map[string]any, includeEmail bool) (map[st
 	out := map[string]any{
 		"id": user["id"], "name": user["name"], "initials": user["initials"],
 		"avatar": nil, "bio": user["bio"], "role": user["role"], "department": dept, "skills": skills,
-		"classes": classes,
+		"classes":      classes,
+		"display_name": user["name"], "avatar_url": nil, "title": nullable(user, "title"),
+		"github_username": githubName(user), "roles": rolesOf(user),
 	}
 	if includeEmail {
 		out["email"] = user["email"]
@@ -414,6 +416,7 @@ func configDoc() map[string]any {
 		"features": map[string]any{
 			"billing": false, "mentor": true, "mentor_chat": true, "mentor_reviews": true, "mentor_kickoff": true,
 			"github": os.Getenv("GITHUB_CLIENT_ID") != "", "push": true,
+			"world_projects": true, "senior_engineers": true, "staff_overview": true, "inquiry_cancel": true,
 		},
 		"maintenance": maint,
 	}
@@ -468,6 +471,7 @@ func projectCard(row map[string]any) map[string]any {
 		"id": row["id"], "department": row["department"], "title": row["title"], "bounty": num(row, "bounty"),
 		"difficulty": row["difficulty"], "min_score": num(row, "min_score"), "min_score_label": minLabel(num(row, "min_score")),
 		"due_at": row["due_at"], "urgent": num(row, "urgent") == 1, "art_key": row["art_key"], "status": row["status"],
+		"summary": firstSentence(str(row, "description")), "repo_full_name": repoFullName(row),
 	}
 }
 
@@ -481,7 +485,12 @@ func projectDetail(tx *sql.Tx, user, row map[string]any) (map[string]any, error)
 		return nil, err
 	}
 	var mine any
+	membershipStatus := "none"
 	if mem != nil {
+		membershipStatus = "pending_approval"
+		if str(mem, "status") == "member" {
+			membershipStatus = "member"
+		}
 		status := "pending_approval"
 		if str(mem, "status") == "member" {
 			status = "joined"
@@ -499,7 +508,20 @@ func projectDetail(tx *sql.Tx, user, row map[string]any) (map[string]any, error)
 	card := projectCard(row)
 	card["description"] = row["description"]
 	card["class_id"] = row["class_id"]
-	card["repo"] = map[string]any{"provider": row["repo_provider"], "name": row["repo_name"], "connected": user["github_token"] != nil && str(user, "github_token") != ""}
+	linked := user["github_token"] != nil && str(user, "github_token") != ""
+	card["repo"] = map[string]any{"provider": row["repo_provider"], "name": row["repo_name"], "full_name": repoFullName(row), "connected": linked, "viewer_github_linked": linked}
+	var classCode any
+	if row["class_id"] != nil {
+		course, err := one(tx, `SELECT code FROM classes WHERE id = ?`, str(row, "class_id"))
+		if err != nil {
+			return nil, err
+		}
+		if course != nil {
+			classCode = course["code"]
+		}
+	}
+	card["class_code"] = classCode
+	card["membership_status"] = membershipStatus
 	card["joining"] = row["joining"]
 	card["reviewed_by"] = row["reviewed_by"]
 	card["reviewer_label"] = row["reviewer_label"]
@@ -533,8 +555,8 @@ func joinProject(tx *sql.Tx, user map[string]any, projectID string) (map[string]
 	}
 	if !ok {
 		messages := map[string]string{
-			"payment_required":  "A paid plan is required before joining.",
-			"score_too_low":     fmt.Sprintf("This project needs a score of %d. Yours is %d.", num(project, "min_score"), num(user, "score")),
+			"payment_required":   "A paid plan is required before joining.",
+			"score_too_low":      fmt.Sprintf("This project needs a score of %d. Yours is %d.", num(project, "min_score"), num(user, "score")),
 			"class_not_enrolled": "This project is for students enrolled in its class.",
 		}
 		return nil, fail(403, reason, messages[reason])
@@ -550,8 +572,10 @@ func joinProject(tx *sql.Tx, user map[string]any, projectID string) (map[string]
 		var tasks []map[string]string
 		_ = json.Unmarshal([]byte(str(project, "template_tasks")), &tasks)
 		for _, task := range tasks {
-			if _, err := tx.Exec(`INSERT INTO tasks (id, project_id, user_id, title, status, lane, due_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				newID(), projectID, str(user, "id"), task["title"], task["status"], task["lane"], project["due_at"]); err != nil {
+			detail := taskDetails[task["title"]]
+			criteria, priority, resources := detail.encoded()
+			if _, err := tx.Exec(`INSERT INTO tasks (id, project_id, user_id, title, status, lane, due_at, description, acceptance_criteria, priority, resources) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				newID(), projectID, str(user, "id"), task["title"], task["status"], task["lane"], project["due_at"], detail.Description, criteria, priority, resources); err != nil {
 				return nil, err
 			}
 		}
@@ -833,7 +857,7 @@ func createInquiry(tx *sql.Tx, user map[string]any, body map[string]any) (map[st
 	if err != nil {
 		return nil, err
 	}
-	return inquiryPayload(row), nil
+	return inquiryView(tx, row)
 }
 
 func publishInquiry(tx *sql.Tx, user map[string]any, id string) (map[string]any, error) {
@@ -872,8 +896,8 @@ func publishRow(tx *sql.Tx, row map[string]any) (string, error) {
 	if _, err := tx.Exec(`INSERT INTO projects (
 		id, department, class_id, title, description, bounty, difficulty, min_score, due_at, urgent, open_to_all,
 		joining, reviewed_by, reviewer_label, repo_provider, repo_name, art_key, status, inquiry_id, template_tasks
-	) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'github', NULL, 'inquiry', 'open', ?, '[]')`,
-		projectID, str(row, "department"), str(row, "title"), str(row, "description"), num(row, "bounty"), str(row, "difficulty"), num(row, "min_score"), row["due_at"], num(row, "is_urgent"), str(row, "joining"), str(row, "reviewer_type"), reviewer, id); err != nil {
+	) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'github', ?, 'inquiry', 'open', ?, '[]')`,
+		projectID, str(row, "department"), str(row, "title"), str(row, "description"), num(row, "bounty"), str(row, "difficulty"), num(row, "min_score"), row["due_at"], num(row, "is_urgent"), str(row, "joining"), str(row, "reviewer_type"), reviewer, repoFromURL(str(row, "repo_url")), id); err != nil {
 		return "", err
 	}
 	if _, err := tx.Exec(`UPDATE inquiries SET status = 'published', project_id = ? WHERE id = ?`, projectID, id); err != nil {
@@ -948,8 +972,14 @@ func submissionDetail(tx *sql.Tx, row map[string]any) (map[string]any, error) {
 	if row["comment"] != nil {
 		comment = str(row, "comment")
 	}
+	// Older rows stored a compare URL without the repo owner; rebuild it from the project's full repo name.
+	diffURL := row["diff_url"]
+	if project, err := one(tx, `SELECT * FROM projects WHERE id = ?`, str(row, "project_id")); err == nil && project != nil {
+		diffURL = compareURL(project, str(row, "branch"))
+	}
 	return map[string]any{
-		"id": row["id"], "project_id": row["project_id"], "diff_url": row["diff_url"], "created_at": row["created_at"],
+		"id": row["id"], "project_id": row["project_id"], "diff_url": diffURL, "created_at": row["created_at"],
+		"branch": row["branch"], "message": nullable(row, "commit_message"), "sha": nullable(row, "commit_sha"),
 		"steps": []any{
 			map[string]any{"step": "pushed", "branch": row["branch"]},
 			map[string]any{"step": "ai_review", "status": "complete", "findings": findings, "ai_review": latestReview(tx, str(row, "project_id"), str(row, "user_id"))},
@@ -958,6 +988,8 @@ func submissionDetail(tx *sql.Tx, row map[string]any) (map[string]any, error) {
 		},
 	}, nil
 }
+
+var commitSHA = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 func createSubmission(tx *sql.Tx, user map[string]any, projectID string, body map[string]any) (map[string]any, error) {
 	project, err := requireProject(tx, projectID)
@@ -971,17 +1003,23 @@ func createSubmission(tx *sql.Tx, user map[string]any, projectID string, body ma
 	if branch == "" || len(branch) > 120 || strings.Contains(branch, " ") {
 		return nil, fail(400, "invalid_body", "branch is required and cannot contain spaces.")
 	}
+	var message, sha any
+	if text := strings.TrimSpace(asString(body["message"])); text != "" {
+		message = clip(text, 500)
+	}
+	if text := strings.ToLower(strings.TrimSpace(asString(body["sha"]))); text != "" {
+		if !commitSHA.MatchString(text) {
+			return nil, fail(400, "invalid_body", "sha must be 7 to 40 hex characters.")
+		}
+		sha = text
+	}
 	findings, _ := json.Marshal(aiFindings(branch))
 	id := newID()
-	repo := str(project, "repo_name")
-	if repo == "" {
-		repo = projectID
-	}
-	diff := "https://github.com/" + repo + "/compare/" + url.PathEscape(branch)
+	diff := compareURL(project, branch)
 	if _, err := tx.Exec(`INSERT INTO submissions (
-		id, project_id, user_id, branch, ai_findings, lead_status, reviewer_id, comment, diff_url, bounty_amount, paid_at, created_at
-	) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, ?)`,
-		id, projectID, str(user, "id"), branch, string(findings), diff, num(project, "bounty"), nowISO()); err != nil {
+		id, project_id, user_id, branch, ai_findings, lead_status, reviewer_id, comment, diff_url, bounty_amount, paid_at, created_at, commit_message, commit_sha
+	) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, ?, ?, ?)`,
+		id, projectID, str(user, "id"), branch, string(findings), diff, num(project, "bounty"), nowISO(), message, sha); err != nil {
 		return nil, err
 	}
 	notify(tx, str(user, "id"), "AI review finished on "+branch+". A dev lead has the summary.")
@@ -1267,22 +1305,63 @@ func postMentor(tx *sql.Tx, user map[string]any, projectID string, body map[stri
 	return replyID, reply, citations, nil
 }
 
+var githubUser = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
+
+// updateMe changes the caller's profile. Every field is optional: display_name (or name), bio (may be empty),
+// skills, github_username, department, and title (staff and admins only).
 func updateMe(tx *sql.Tx, user map[string]any, body map[string]any) (map[string]any, error) {
-	bio := str(user, "bio")
-	var skills []string
-	_ = json.Unmarshal([]byte(str(user, "skills")), &skills)
-	if _, ok := body["bio"]; ok {
-		bio = strings.TrimSpace(asString(body["bio"]))
-		if bio == "" || len(bio) > 280 {
-			return nil, fail(400, "invalid_body", "Bio must be 1 to 280 characters.")
+	sets := []string{}
+	args := []any{}
+	set := func(column string, value any) {
+		sets = append(sets, column+" = ?")
+		args = append(args, value)
+	}
+	optional := func(key string, max int, label string) (any, bool, error) {
+		raw, ok := body[key]
+		if !ok {
+			return nil, false, nil
 		}
+		if raw != nil {
+			if _, isText := raw.(string); !isText {
+				return nil, true, fail(400, "invalid_body", label+" must be text.")
+			}
+		}
+		text := strings.TrimSpace(asString(raw))
+		if len(text) > max {
+			return nil, true, fail(400, "invalid_body", fmt.Sprintf("%s must be at most %d characters.", label, max))
+		}
+		if text == "" {
+			return nil, true, nil
+		}
+		return text, true, nil
+	}
+	nameKey := ""
+	if _, ok := body["display_name"]; ok {
+		nameKey = "display_name"
+	} else if _, ok := body["name"]; ok {
+		nameKey = "name"
+	}
+	if nameKey != "" {
+		name := strings.TrimSpace(asString(body[nameKey]))
+		if name == "" || len(name) > 80 {
+			return nil, fail(400, "invalid_body", "Name must be 1 to 80 characters.")
+		}
+		set("name", name)
+		set("initials", initialsOf(name))
+	}
+	if _, ok := body["bio"]; ok {
+		bio := strings.TrimSpace(asString(body["bio"]))
+		if len(bio) > 280 {
+			return nil, fail(400, "invalid_body", "Bio must be at most 280 characters.")
+		}
+		set("bio", bio)
 	}
 	if raw, ok := body["skills"]; ok {
 		list, ok := raw.([]any)
 		if !ok || len(list) == 0 {
 			return nil, fail(400, "invalid_body", "skills must be a non-empty list of strings.")
 		}
-		skills = nil
+		var skills []string
 		for _, item := range list {
 			text, ok := item.(string)
 			if !ok || strings.TrimSpace(text) == "" {
@@ -1293,10 +1372,38 @@ func updateMe(tx *sql.Tx, user map[string]any, body map[string]any) (map[string]
 				break
 			}
 		}
+		encoded, _ := json.Marshal(skills)
+		set("skills", string(encoded))
 	}
-	encoded, _ := json.Marshal(skills)
-	if _, err := tx.Exec(`UPDATE users SET bio = ?, skills = ? WHERE id = ?`, bio, string(encoded), str(user, "id")); err != nil {
+	if value, ok, err := optional("github_username", 39, "github_username"); err != nil {
 		return nil, err
+	} else if ok {
+		if value != nil && !githubUser.MatchString(strings.TrimPrefix(value.(string), "@")) {
+			return nil, fail(400, "invalid_body", "github_username is not a valid GitHub username.")
+		}
+		if value != nil {
+			value = strings.TrimPrefix(value.(string), "@")
+		}
+		set("github_username", value)
+	}
+	if value, ok, err := optional("department", 80, "department"); err != nil {
+		return nil, err
+	} else if ok {
+		set("department", value)
+	}
+	if value, ok, err := optional("title", 80, "title"); err != nil {
+		return nil, err
+	} else if ok {
+		if role := str(user, "role"); role != "staff" && role != "admin" {
+			return nil, fail(403, "role_required", "Only @bau.edu staff can set a title.")
+		}
+		set("title", value)
+	}
+	if len(sets) > 0 {
+		args = append(args, str(user, "id"))
+		if _, err := tx.Exec(`UPDATE users SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...); err != nil {
+			return nil, err
+		}
 	}
 	fresh, err := one(tx, `SELECT * FROM users WHERE id = ?`, str(user, "id"))
 	if err != nil {

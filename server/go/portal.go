@@ -97,7 +97,7 @@ func defaultPortal() map[string]any {
 	return map[string]any{
 		"user": map[string]any{
 			"name": "Sam Carter", "initials": "SC",
-			"bio": "Computer Science student. Learning by shipping real work for BAU.",
+			"bio":    "Computer Science student. Learning by shipping real work for BAU.",
 			"skills": []any{"JavaScript", "Python"}, "classes": []any{"CMPS433"},
 			"github": "connected", "role": "student", "score": 180, "earnings": 38, "approvedProjects": 2,
 			"lead": map[string]any{"examPassed": false, "examAttempts": 0, "lastExamScore": nil, "inPerson": false},
@@ -106,7 +106,7 @@ func defaultPortal() map[string]any {
 			"library": map[string]any{
 				"status": "member", "rewarded": false, "branch": "fix-date-validation",
 				"aiSummary": "Past dates are rejected and a test covers it. Worth a look: the error is not announced to screen readers.",
-				"tasks": cloneTasks(library),
+				"tasks":     cloneTasks(library),
 				"commits": []any{
 					map[string]any{"id": "c1", "title": "Reject dates before today", "branch": "fix-date-validation", "state": "approved", "diff": "--- a/booking-form.js\n+++ b/booking-form.js\n@@\n-if (date) return true;\n+if (!date || date < today()) {\n+  return fail('Pick a future date');\n+}"},
 					map[string]any{"id": "c2", "title": "Add test for past-date check", "branch": "fix-date-validation", "state": "with_dev_lead", "diff": "--- a/booking-form.test.js\n+++ b/booking-form.test.js\n@@\n+test('rejects a date before today', () => {\n+  expect(validate('2000-01-01')).toBe(false);\n+});"},
@@ -115,9 +115,9 @@ func defaultPortal() map[string]any {
 			},
 			"attendance": map[string]any{"status": "member", "rewarded": false, "branch": nil, "aiSummary": nil, "tasks": cloneTasks(attendance), "commits": []any{}},
 		},
-		"messages": map[string]any{"library": []any{map[string]any{"role": "mentor", "text": "Your date check compares strings, so “2026-1-5” sorts after “2026-12-01”. What could you compare instead?"}}},
+		"messages":      map[string]any{"library": []any{map[string]any{"role": "mentor", "text": "Your date check compares strings, so “2026-1-5” sorts after “2026-12-01”. What could you compare instead?"}}},
 		"notifications": []any{map[string]any{"id": "n1", "text": "A dev lead is reading your diff on fix-date-validation.", "read": false}},
-		"seq": 10,
+		"seq":           10,
 	}
 }
 
@@ -466,7 +466,7 @@ func publicPortal(state map[string]any) map[string]any {
 	return map[string]any{
 		"user": shown, "projects": projects, "work": work,
 		"summary": map[string]any{"member": member, "pending": pending, "assigned": assigned},
-		"rooms": rooms, "notifications": plist(state["notifications"]),
+		"rooms":   rooms, "notifications": plist(state["notifications"]),
 		"exam": questions, "examPassMark": passMark,
 	}
 }

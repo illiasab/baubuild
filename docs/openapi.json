@@ -5,15 +5,59 @@
     "version": "1.0.0",
     "description": "Auth, projects, inquiries, workspace, review, and live updates. Human page: /docs"
   },
-  "servers": [{ "url": "https://api.baubuild.vesperconnect.org" }],
+  "servers": [
+    {
+      "url": "https://api.baubuild.vesperconnect.org"
+    }
+  ],
   "tags": [
-    {"name": "Auth"}, {"name": "Config"}, {"name": "Billing"}, {"name": "Profile"},
-    {"name": "Projects"}, {"name": "Classes"}, {"name": "Inquiries"}, {"name": "Workspace"},
-    {"name": "Review"}, {"name": "Lead"}, {"name": "Earnings"}, {"name": "Notifications"}, {"name": "Links"}
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Config"
+    },
+    {
+      "name": "Billing"
+    },
+    {
+      "name": "Profile"
+    },
+    {
+      "name": "Projects"
+    },
+    {
+      "name": "Classes"
+    },
+    {
+      "name": "Inquiries"
+    },
+    {
+      "name": "Workspace"
+    },
+    {
+      "name": "Review"
+    },
+    {
+      "name": "Lead"
+    },
+    {
+      "name": "Earnings"
+    },
+    {
+      "name": "Notifications"
+    },
+    {
+      "name": "Links"
+    }
   ],
   "components": {
     "securitySchemes": {
-      "bearer": {"type": "http", "scheme": "bearer", "bearerFormat": "opaque"}
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque"
+      }
     },
     "schemas": {
       "Error": {
@@ -22,22 +66,641 @@
           "error": {
             "type": "object",
             "properties": {
-              "code": {"type": "string"},
-              "message": {"type": "string"}
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retry_after_s": {
+                "type": "integer"
+              }
             }
+          }
+        }
+      },
+      "Device": {
+        "type": "object",
+        "required": [
+          "platform",
+          "app_version"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "macos",
+              "android",
+              "windows",
+              "linux",
+              "web"
+            ]
+          },
+          "app_version": {
+            "type": "string"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "description": "Own profile, or staff viewers on /v1/users/{id}"
+          },
+          "name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Same as name"
+          },
+          "initials": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string",
+            "nullable": true
+          },
+          "avatar_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "bio": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "student",
+              "lead",
+              "staff",
+              "admin"
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "role plus extra roles such as interviewer, senior_engineer"
+            }
+          },
+          "title": {
+            "type": "string",
+            "nullable": true,
+            "description": "e.g. Professor (staff only)"
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "github_username": {
+            "type": "string",
+            "nullable": true
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "classes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TokenPair": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "entitlement": {
+            "type": "object",
+            "properties": {
+              "tier": {
+                "type": "string"
+              },
+              "expires_at": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string",
+            "description": "First sentence of description"
+          },
+          "description": {
+            "type": "string"
+          },
+          "bounty": {
+            "type": "integer"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "medium",
+              "hard"
+            ]
+          },
+          "min_score": {
+            "type": "integer"
+          },
+          "min_score_label": {
+            "type": "string"
+          },
+          "due_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "urgent": {
+            "type": "boolean"
+          },
+          "art_key": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "done"
+            ]
+          },
+          "class_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "class_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "repo_full_name": {
+            "type": "string",
+            "nullable": true,
+            "description": "owner/repo; bare repo names get GITHUB_ORG (default bau-build)"
+          },
+          "repo": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "nullable": true
+              },
+              "name": {
+                "type": "string",
+                "nullable": true
+              },
+              "full_name": {
+                "type": "string",
+                "nullable": true
+              },
+              "connected": {
+                "type": "boolean",
+                "description": "Deprecated alias of viewer_github_linked"
+              },
+              "viewer_github_linked": {
+                "type": "boolean"
+              }
+            }
+          },
+          "joining": {
+            "type": "string",
+            "enum": [
+              "everyone",
+              "approval"
+            ]
+          },
+          "reviewed_by": {
+            "type": "string"
+          },
+          "reviewer_label": {
+            "type": "string"
+          },
+          "is_bookmarked": {
+            "type": "boolean"
+          },
+          "membership_status": {
+            "type": "string",
+            "enum": [
+              "none",
+              "member",
+              "pending_approval"
+            ]
+          },
+          "my_membership": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "joined",
+                  "pending_approval"
+                ]
+              }
+            }
+          },
+          "eligibility": {
+            "type": "object",
+            "properties": {
+              "eligible": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "todo",
+              "in_progress",
+              "done"
+            ]
+          },
+          "lane": {
+            "type": "string",
+            "enum": [
+              "assigned",
+              "backlog"
+            ]
+          },
+          "due_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "due_date": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "criteria_done": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "index into acceptance_criteria"
+            }
+          }
+        }
+      },
+      "Inquiry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "medium",
+              "hard"
+            ]
+          },
+          "bounty": {
+            "type": "integer"
+          },
+          "is_urgent": {
+            "type": "boolean"
+          },
+          "due_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "repo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "min_score": {
+            "type": "integer"
+          },
+          "joining": {
+            "type": "string"
+          },
+          "reviewer_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "approved",
+              "published",
+              "cancelled"
+            ]
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "in_progress",
+              "delivered",
+              "cancelled"
+            ],
+            "description": "draft = not published; open = published, no member; in_progress = ≥1 member, nothing paid; delivered = project done or an approved submission was paid; cancelled"
+          },
+          "project_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelled_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "wasted_usd": {
+            "type": "integer",
+            "description": "Unpaid bounty when cancelled"
+          }
+        }
+      },
+      "InquiryInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "easy",
+              "medium",
+              "hard"
+            ]
+          },
+          "bounty": {
+            "type": "integer"
+          },
+          "is_urgent": {
+            "type": "boolean"
+          },
+          "due_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "repo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "min_score": {
+            "type": "integer"
+          },
+          "joining": {
+            "type": "string"
+          },
+          "reviewer_type": {
+            "type": "string"
+          }
+        }
+      },
+      "StaffOverview": {
+        "type": "object",
+        "properties": {
+          "raised_usd": {
+            "type": "integer"
+          },
+          "wasted_usd": {
+            "type": "integer"
+          },
+          "open": {
+            "type": "integer"
+          },
+          "in_progress": {
+            "type": "integer"
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "needs_attention": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "WorldProject": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "organization": {
+            "type": "string"
+          },
+          "project_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "SeniorEngineer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "bio": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "github_username": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ChangeCommit": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "description": "Commit message sent with the submission; falls back to the branch name"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "sent_back"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "with_dev_lead",
+              "approved",
+              "changes_requested"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "diff_url": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
           }
         }
       }
     }
   },
   "paths": {
-    "/v1/auth/register": {"post": {"tags": ["Auth"], "summary": "Create an account and email a 6-digit code", "security": [], "responses": {"202": {"description": "verification_required, email, resend_after_s"}, "403": {"description": "domain_not_allowed"}, "409": {"description": "email_taken"}, "422": {"description": "weak_password"}, "503": {"description": "email_not_configured"}}}},
-    "/v1/auth/verify-email": {"post": {"tags": ["Auth"], "summary": "Verify the email code and return tokens", "security": [], "responses": {"200": {"description": "access_token, refresh_token, expires_in, user, entitlement"}, "400": {"description": "invalid_code"}, "410": {"description": "code_expired"}, "429": {"description": "too_many_attempts"}}}},
-    "/v1/auth/resend-code": {"post": {"tags": ["Auth"], "summary": "Email another code", "security": [], "responses": {"202": {"description": "resend_after_s"}, "429": {"description": "too_many_requests"}}}},
-    "/v1/auth/login": {"post": {"tags": ["Auth"], "summary": "Sign in with email and password", "security": [], "responses": {"200": {"description": "access_token, refresh_token, expires_in, user, entitlement"}, "401": {"description": "invalid_credentials"}, "403": {"description": "email_not_verified or domain_not_allowed"}, "429": {"description": "too_many_attempts"}}}},
-    "/v1/auth/password/forgot": {"post": {"tags": ["Auth"], "summary": "Email a password reset code", "security": [], "responses": {"202": {"description": "resend_after_s"}, "429": {"description": "too_many_requests"}}}},
-    "/v1/auth/password/reset": {"post": {"tags": ["Auth"], "summary": "Set a new password and sign in", "security": [], "responses": {"200": {"description": "tokens; other sessions revoked"}, "400": {"description": "invalid_code"}, "410": {"description": "code_expired"}, "422": {"description": "weak_password"}}}},
-    "/v1/auth/refresh": {"post": {"tags": ["Auth"], "summary": "Rotate the refresh token", "security": [], "responses": {"200": {"description": "New token pair"}, "401": {"description": "unauthorized or refresh_reused"}}}},
+    "/v1/auth/register": {"post": {"tags": ["Auth"], "summary": "Create a verified account and sign in (no email code)", "security": [], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["name", "email", "password", "device"], "properties": {"name": {"type": "string"}, "email": {"type": "string"}, "password": {"type": "string"}, "device": {"$ref": "#/components/schemas/Device"}}}}}}, "responses": {"200": {"description": "Signed in", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenPair"}}}}, "400": {"description": "invalid_body"}, "403": {"description": "domain_not_allowed (checked first)"}, "409": {"description": "email_taken"}, "422": {"description": "weak_password"}}}},
+    "/v1/auth/verify-email": {"post": {"tags": ["Auth"], "summary": "Removed: there is no email code", "deprecated": true, "security": [], "responses": {"501": {"description": "not_available — no email step; password reset is done by an admin"}}}},
+    "/v1/auth/resend-code": {"post": {"tags": ["Auth"], "summary": "Removed: there is no email code", "deprecated": true, "security": [], "responses": {"501": {"description": "not_available — no email step; password reset is done by an admin"}}}},
+    "/v1/auth/login": {"post": {"tags": ["Auth"], "summary": "Sign in with email and password", "security": [], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["email", "password", "device"], "properties": {"email": {"type": "string"}, "password": {"type": "string"}, "device": {"$ref": "#/components/schemas/Device"}}}}}}, "responses": {"200": {"description": "Signed in", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenPair"}}}}, "401": {"description": "invalid_credentials"}, "403": {"description": "domain_not_allowed"}, "429": {"description": "too_many_attempts (retry_after_s)"}}}},
+    "/v1/auth/password/forgot": {"post": {"tags": ["Auth"], "summary": "Removed: ask an admin to reset the password", "deprecated": true, "security": [], "responses": {"501": {"description": "not_available — no email step; password reset is done by an admin"}}}},
+    "/v1/auth/password/reset": {"post": {"tags": ["Auth"], "summary": "Removed: ask an admin to reset the password", "deprecated": true, "security": [], "responses": {"501": {"description": "not_available — no email step; password reset is done by an admin"}}}},
+    "/v1/auth/refresh": {"post": {"tags": ["Auth"], "summary": "Rotate the refresh token", "security": [], "responses": {"200": {"description": "New token pair", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenPair"}}}}, "401": {"description": "unauthorized or refresh_reused"}, "403": {"description": "domain_not_allowed"}}, "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["refresh_token"], "properties": {"refresh_token": {"type": "string"}}}}}}}},
     "/v1/auth/logout": {"post": {"tags": ["Auth"], "summary": "Revoke the current session", "security": [{"bearer": []}], "responses": {"204": {"description": "Revoked"}}}},
     "/v1/auth/sessions": {"get": {"tags": ["Auth"], "summary": "List sessions", "security": [{"bearer": []}], "responses": {"200": {"description": "sessions"}}}},
     "/v1/auth/sessions/{id}": {"delete": {"tags": ["Auth"], "summary": "Revoke one session", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Revoked"}}}},
@@ -49,13 +712,13 @@
     "/v1/billing/checkout": {"post": {"tags": ["Billing"], "summary": "Stripe Checkout for Windows and Linux", "security": [{"bearer": []}], "responses": {"503": {"description": "billing_not_enabled"}}}},
     "/v1/billing/subscription": {"get": {"tags": ["Billing"], "summary": "Current subscription", "security": [{"bearer": []}], "responses": {"200": {"description": "Subscription"}}}},
     "/v1/billing/webhooks/{provider}": {"post": {"tags": ["Billing"], "summary": "Store or Stripe webhook", "security": [], "parameters": [{"name": "provider", "in": "path", "required": true, "schema": {"type": "string", "enum": ["apple", "google", "stripe"]}}], "responses": {"503": {"description": "billing_not_enabled"}}}},
-    "/v1/me": {"get": {"tags": ["Profile"], "summary": "Current profile", "security": [{"bearer": []}], "responses": {"200": {"description": "User"}}}, "patch": {"tags": ["Profile"], "summary": "Update bio and skills", "security": [{"bearer": []}], "responses": {"200": {"description": "User"}}}},
+    "/v1/me": {"get": {"tags": ["Profile"], "summary": "Current profile", "security": [{"bearer": []}], "responses": {"200": {"description": "User", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/User"}}}}}}, "patch": {"tags": ["Profile"], "summary": "Update the profile (all fields optional)", "security": [{"bearer": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"display_name": {"type": "string", "description": "or name; 1–80 chars"}, "name": {"type": "string"}, "bio": {"type": "string", "description": "0–280 chars; empty allowed"}, "skills": {"type": "array", "items": {"type": "string"}}, "github_username": {"type": "string", "nullable": true}, "department": {"type": "string", "nullable": true}, "title": {"type": "string", "nullable": true, "description": "staff/admin only, else 403 role_required"}}}}}}, "responses": {"200": {"description": "User", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/User"}}}}, "400": {"description": "invalid_body"}, "403": {"description": "role_required (title on a student)"}}}},
     "/v1/me/stats": {"get": {"tags": ["Profile"], "summary": "Score, tier, earnings, approved count", "security": [{"bearer": []}], "responses": {"200": {"description": "Stats"}}}},
-    "/v1/users/{id}": {"get": {"tags": ["Profile"], "summary": "Public profile", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Profile without email"}}}},
+    "/v1/users/{id}": {"get": {"tags": ["Profile"], "summary": "Public profile (title, bio, skills, github_username, roles; email for staff viewers)", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "User", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/User"}}}}}}},
     "/v1/home": {"get": {"tags": ["Projects"], "summary": "First-paint home payload", "security": [{"bearer": []}], "responses": {"200": {"description": "Home"}}}},
     "/v1/inquiries/urgent": {"get": {"tags": ["Projects"], "summary": "Urgent project widgets", "security": [{"bearer": []}], "responses": {"200": {"description": "Urgent items"}}}},
-    "/v1/projects": {"get": {"tags": ["Projects"], "summary": "Open projects", "security": [{"bearer": []}], "parameters": [{"name": "difficulty", "in": "query", "schema": {"type": "string", "enum": ["easy", "medium", "hard"]}}, {"name": "department", "in": "query", "schema": {"type": "string"}}, {"name": "class_id", "in": "query", "schema": {"type": "string"}}, {"name": "status", "in": "query", "schema": {"type": "string", "enum": ["open"]}}, {"name": "q", "in": "query", "schema": {"type": "string"}}, {"name": "cursor", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "Page"}}}},
-    "/v1/projects/{id}": {"get": {"tags": ["Projects"], "summary": "Project detail and eligibility", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Project"}}}},
+    "/v1/projects": {"get": {"tags": ["Projects"], "summary": "Open projects", "security": [{"bearer": []}], "parameters": [{"name": "difficulty", "in": "query", "schema": {"type": "string", "enum": ["easy", "medium", "hard"]}}, {"name": "department", "in": "query", "schema": {"type": "string"}}, {"name": "class_id", "in": "query", "schema": {"type": "string"}}, {"name": "status", "in": "query", "schema": {"type": "string", "enum": ["open"]}}, {"name": "q", "in": "query", "schema": {"type": "string"}}, {"name": "cursor", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "Page", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Project"}}, "next_cursor": {"type": "string", "nullable": true}}}}}}}}},
+    "/v1/projects/{id}": {"get": {"tags": ["Projects"], "summary": "Project detail and eligibility", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Project", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Project"}}}}}}},
     "/v1/projects/{id}/join": {"post": {"tags": ["Projects"], "summary": "Join or request", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "joined or pending_approval"}, "403": {"description": "score_too_low, payment_required, or class_not_enrolled"}}}},
     "/v1/projects/{id}/membership": {"delete": {"tags": ["Projects"], "summary": "Leave a project", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Left"}}}},
     "/v1/projects/{id}/bookmark": {"put": {"tags": ["Projects"], "summary": "Bookmark", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Saved"}}}, "delete": {"tags": ["Projects"], "summary": "Remove bookmark", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Removed"}}}},
@@ -64,16 +727,16 @@
     "/v1/me/classes": {"get": {"tags": ["Classes"], "summary": "Enrolled classes", "security": [{"bearer": []}], "responses": {"200": {"description": "Classes"}}}},
     "/v1/classes/{id}": {"get": {"tags": ["Classes"], "summary": "One class", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Class"}}}},
     "/v1/classes/{id}/projects": {"get": {"tags": ["Classes"], "summary": "Open projects in a class", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Projects"}}}},
-    "/v1/inquiries": {"post": {"tags": ["Inquiries"], "summary": "Create a staff inquiry", "security": [{"bearer": []}], "responses": {"201": {"description": "submitted"}, "403": {"description": "role_required"}}}},
-    "/v1/inquiries/mine": {"get": {"tags": ["Inquiries"], "summary": "My inquiries", "security": [{"bearer": []}], "responses": {"200": {"description": "Inquiries"}}}},
-    "/v1/inquiries/{id}": {"get": {"tags": ["Inquiries"], "summary": "One inquiry", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Inquiry"}}}, "patch": {"tags": ["Inquiries"], "summary": "Edit a submitted inquiry", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Inquiry"}}}, "delete": {"tags": ["Inquiries"], "summary": "Delete a submitted inquiry", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Deleted"}}}},
+    "/v1/inquiries": {"post": {"tags": ["Inquiries"], "summary": "Create a staff inquiry", "security": [{"bearer": []}], "responses": {"201": {"description": "Published right away", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Inquiry"}}}}, "400": {"description": "invalid_body"}, "403": {"description": "role_required"}}, "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InquiryInput"}}}}}},
+    "/v1/inquiries/mine": {"get": {"tags": ["Inquiries"], "summary": "My inquiries", "security": [{"bearer": []}], "responses": {"200": {"description": "Inquiries", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Inquiry"}}}}}}}}}},
+    "/v1/inquiries/{id}": {"get": {"tags": ["Inquiries"], "summary": "One inquiry", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Inquiry", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Inquiry"}}}}}}, "patch": {"tags": ["Inquiries"], "summary": "Edit an inquiry (also while published; mirrored onto the project, members get inquiry_updated)", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InquiryInput"}}}}, "responses": {"200": {"description": "Inquiry", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Inquiry"}}}}, "400": {"description": "invalid_body"}, "403": {"description": "role_required"}, "409": {"description": "inquiry_locked (cancelled)"}}}, "delete": {"tags": ["Inquiries"], "summary": "Delete an inquiry that is not published yet", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"204": {"description": "Deleted"}, "409": {"description": "inquiry_locked — cancel a published inquiry instead"}}}},
     "/v1/admin/inquiries/{id}/approve": {"post": {"tags": ["Inquiries"], "summary": "Approve an inquiry", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "approved"}}}},
     "/v1/admin/inquiries/{id}/publish": {"post": {"tags": ["Inquiries"], "summary": "Publish an approved inquiry as a project", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"201": {"description": "published"}}}},
     "/v1/admin/enrollments": {"post": {"tags": ["Classes"], "summary": "Enroll a user in a class", "security": [{"bearer": []}], "responses": {"201": {"description": "Enrolled"}}}},
     "/v1/me/work": {"get": {"tags": ["Workspace"], "summary": "In progress and awaiting approval", "security": [{"bearer": []}], "responses": {"200": {"description": "Work"}}}},
-    "/v1/projects/{id}/tasks": {"get": {"tags": ["Workspace"], "summary": "My tasks", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "assignee", "in": "query", "schema": {"type": "string", "enum": ["me"]}}], "responses": {"200": {"description": "Tasks"}}}},
-    "/v1/tasks/{id}": {"patch": {"tags": ["Workspace"], "summary": "Change task status", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Task"}}}},
-    "/v1/projects/{id}/changes": {"get": {"tags": ["Workspace"], "summary": "Branches and GitHub commits", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Changes"}}}},
+    "/v1/projects/{id}/tasks": {"get": {"tags": ["Workspace"], "summary": "My tasks", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "assignee", "in": "query", "schema": {"type": "string", "enum": ["me"]}}], "responses": {"200": {"description": "My tasks", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Task"}}}}}}}, "403": {"description": "not_a_member"}}}},
+    "/v1/tasks/{id}": {"patch": {"tags": ["Workspace"], "summary": "Change task status and/or ticked acceptance checks", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"description": "invalid_body"}, "404": {"description": "not_found"}}, "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string", "enum": ["todo", "in_progress", "done"]}, "criteria_done": {"type": "array", "items": {"type": "integer"}}}}}}}}},
+    "/v1/projects/{id}/changes": {"get": {"tags": ["Workspace"], "summary": "Branches and GitHub commits", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Changes", "content": {"application/json": {"schema": {"type": "object", "properties": {"connected": {"type": "boolean"}, "repo": {"type": "string", "nullable": true}, "repo_full_name": {"type": "string", "nullable": true}, "branches": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "commits": {"type": "array", "items": {"$ref": "#/components/schemas/ChangeCommit"}}}}}, "github_commits": {"type": "array", "items": {"type": "object", "description": "Always empty for now: fetching commits from GitHub needs the stored token (§4)"}}}}}}}}}},
     "/v1/integrations/github": {"get": {"tags": ["Workspace"], "summary": "GitHub connection", "security": [{"bearer": []}], "responses": {"200": {"description": "Status"}}}, "delete": {"tags": ["Workspace"], "summary": "Disconnect GitHub", "security": [{"bearer": []}], "responses": {"200": {"description": "Disconnected"}}}},
     "/v1/integrations/github/connect": {"post": {"tags": ["Workspace"], "summary": "Start GitHub OAuth", "security": [{"bearer": []}], "responses": {"200": {"description": "authorize_url"}, "503": {"description": "github_not_configured"}}}},
     "/v1/integrations/github/callback": {"get": {"tags": ["Workspace"], "summary": "GitHub OAuth callback", "security": [], "responses": {"200": {"description": "Connected"}}}},
@@ -90,7 +753,7 @@
     "/v1/admin/kb/rules": {"post": {"tags": ["Knowledge"], "summary": "Add or replace a rule", "security": [{"bearer": []}], "responses": {"201": {"description": "Rule"}}}},
     "/v1/admin/kb/reindex": {"post": {"tags": ["Knowledge"], "summary": "Rebuild search", "security": [{"bearer": []}], "responses": {"202": {"description": "Accepted"}}}},
     "/v1/admin/kb/search": {"get": {"tags": ["Knowledge"], "summary": "Test what the mentor retrieves", "security": [{"bearer": []}], "parameters": [{"name": "q", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "Hits"}}}},
-    "/v1/projects/{id}/submissions": {"post": {"tags": ["Review"], "summary": "Submit a branch", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"201": {"description": "Submission"}}}},
+    "/v1/projects/{id}/submissions": {"post": {"tags": ["Review"], "summary": "Submit a branch", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"201": {"description": "Submission"}}, "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["branch"], "properties": {"branch": {"type": "string"}, "message": {"type": "string", "description": "optional commit message (≤500)"}, "sha": {"type": "string", "description": "optional 7–40 hex"}}}}}}}},
     "/v1/me/submissions": {"get": {"tags": ["Review"], "summary": "My submissions", "security": [{"bearer": []}], "responses": {"200": {"description": "Submissions"}}}},
     "/v1/submissions/{id}": {"get": {"tags": ["Review"], "summary": "Submission timeline", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Timeline"}}}},
     "/v1/lead/queue": {"get": {"tags": ["Review"], "summary": "Submissions waiting on a lead", "security": [{"bearer": []}], "responses": {"200": {"description": "Queue"}, "403": {"description": "role_required"}}}},
@@ -109,6 +772,11 @@
     "/v1/events/stream": {"get": {"tags": ["Notifications"], "summary": "SSE live updates", "security": [{"bearer": []}], "parameters": [{"name": "Last-Event-ID", "in": "header", "schema": {"type": "string"}}], "responses": {"200": {"description": "text/event-stream"}}}},
     "/.well-known/apple-app-site-association": {"get": {"tags": ["Links"], "summary": "Apple universal links", "security": [], "responses": {"200": {"description": "AASA"}}}},
     "/.well-known/assetlinks.json": {"get": {"tags": ["Links"], "summary": "Android app links", "security": [], "responses": {"200": {"description": "Asset links"}}}},
-    "/p/{id}": {"get": {"tags": ["Links"], "summary": "Shared project page", "security": [], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "HTML"}}}}
+    "/p/{id}": {"get": {"tags": ["Links"], "summary": "Shared project page", "security": [], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "HTML"}}}},
+    "/v1/admin/users/{id}/password": {"post": {"tags": ["Auth"], "summary": "Admin sets a user's password and revokes their sessions", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["new_password"], "properties": {"new_password": {"type": "string"}}}}}}, "responses": {"200": {"description": "Done", "content": {"application/json": {"schema": {"type": "object", "properties": {"user_id": {"type": "string"}, "sessions_revoked": {"type": "integer"}}}}}}, "403": {"description": "role_required"}, "404": {"description": "not_found"}, "422": {"description": "weak_password"}}}},
+    "/v1/inquiries/{id}/cancel": {"post": {"tags": ["Inquiries"], "summary": "Cancel: inquiry → cancelled, project → closed, unpaid bounty counts as wasted", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Inquiry", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Inquiry"}}}}, "403": {"description": "role_required"}, "404": {"description": "not_found"}, "409": {"description": "inquiry_locked (already cancelled or delivered)"}}}},
+    "/v1/staff/overview": {"get": {"tags": ["Inquiries"], "summary": "Totals over the caller's inquiries (see Inquiry.stage)", "security": [{"bearer": []}], "responses": {"200": {"description": "Overview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StaffOverview"}}}}, "403": {"description": "role_required"}}}},
+    "/v1/world-projects": {"get": {"tags": ["Inquiries"], "summary": "Project ideas universities can build", "security": [{"bearer": []}], "responses": {"200": {"description": "Ideas", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/WorldProject"}}}}}}}}}},
+    "/v1/senior-engineers": {"get": {"tags": ["Profile"], "summary": "Senior engineers and interviewers (Ilias, Arian)", "security": [{"bearer": []}], "responses": {"200": {"description": "People", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/SeniorEngineer"}}}}}}}}}}
   }
 }

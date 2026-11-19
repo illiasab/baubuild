@@ -1,8 +1,9 @@
 # BAU BUILD — backend requirements (API v1, Go)
 
-> Sign-in is email and password with a 6-digit code (§1). Microsoft sign-in is not used. `@stu.bau.edu` is a student,
-> `@bau.edu` is staff, and anything else is `403 domain_not_allowed`. Codes are emailed when `SMTP_HOST` is set;
-> otherwise those routes return `503 email_not_configured`. `GET /healthz` and `GET /readyz` are public.
+> Sign-in is email and password, recorded in the database — **no email, no code, no SMTP** (§1, changed 2026-11-19).
+> `@stu.bau.edu` is a student, `@bau.edu` is staff, and anything else is `403 domain_not_allowed`. Register returns
+> tokens straight away. Password resets are done by an admin (`POST /v1/admin/users/{id}/password`).
+> `GET /healthz` and `GET /readyz` are public.
 
 Everything the apps (iOS, Android, macOS, Windows, Linux) need from the backend. Built on the current API
 (`docs/openapi.json`, `docs/index.html`); items marked **✅ exists** are already there, **🆕** are new, **✏️** change
@@ -41,17 +42,18 @@ Token responses are `{access_token, refresh_token, expires_in, user, entitlement
 
 | | Endpoint | Contract |
 |---|---|---|
-| ✅ | `POST /v1/auth/register {name, email, password, device}` | → `202 {verification_required: true, email, resend_after_s}` and emails a 6-digit code. Errors: `400 invalid_body`, `403 domain_not_allowed` (only stu.bau.edu / bau.edu), `409 email_taken` (a **verified** account exists; re-registering an unverified email replaces it and sends a new code), `422 weak_password` (min 8 chars, ≥1 letter + ≥1 digit; the server is authoritative). |
-| ✅ | `POST /v1/auth/verify-email {email, code, device}` | → `200` tokens (signs in). Errors: `400 invalid_code`, `410 code_expired` (codes valid 15 min), `429 too_many_attempts` (5 wrong tries → that code is dead, a new one is needed). |
-| ✅ | `POST /v1/auth/resend-code {email, purpose: "verify"\|"reset"}` | → `202 {resend_after_s}` (invalidates the previous code). `429 too_many_requests` with `retry_after_s`. Same 202 whether or not the account exists. |
-| ✅ | `POST /v1/auth/login {email, password, device}` | → `200` tokens. Errors: `401 invalid_credentials` (also for an unknown email — no enumeration), `403 email_not_verified` (the server re-sends a code; include `resend_after_s` in `error`), `403 domain_not_allowed`, `429 too_many_attempts` (lockout, with `retry_after_s`). |
-| ✅ | `POST /v1/auth/password/forgot {email}` | → always `202 {resend_after_s}` (no enumeration); emails a reset code if the account exists. `429 too_many_requests` only for rate limiting. |
-| ✅ | `POST /v1/auth/password/reset {email, code, new_password, device}` | → `200` tokens (signs in) and **revokes all other sessions**. Errors: `400 invalid_code`, `410 code_expired`, `422 weak_password`, `429 too_many_attempts`. |
+| ✅ | `POST /v1/auth/register {name, email, password, device}` | ✅ **Changed 2026-11-19: no email step.** → `200` tokens `{access_token, refresh_token, expires_in, user, entitlement}` (same as login); the account is created verified. `403 domain_not_allowed` is checked **first** (before any body validation), then `400 invalid_body`, `422 weak_password`, `409 email_taken` (any account with a password). A pre-seeded account without a password (e.g. Ilias/Arian) is claimed by registering. No SMTP needed. _Old contract:_ → `202 {verification_required: true, email, resend_after_s}` and emails a 6-digit code. Errors: `400 invalid_body`, `403 domain_not_allowed` (only stu.bau.edu / bau.edu), `409 email_taken` (a **verified** account exists; re-registering an unverified email replaces it and sends a new code), `422 weak_password` (min 8 chars, ≥1 letter + ≥1 digit; the server is authoritative). |
+| ❌ | `POST /v1/auth/verify-email {email, code, device}` | ✅ Removed 2026-11-19: route kept for old clients, answers `501 not_available`. _Old contract:_ → `200` tokens (signs in). Errors: `400 invalid_code`, `410 code_expired` (codes valid 15 min), `429 too_many_attempts` (5 wrong tries → that code is dead, a new one is needed). |
+| ❌ | `POST /v1/auth/resend-code {email, purpose: "verify"\|"reset"}` | ✅ Removed: `501 not_available`. _Old contract:_ → `202 {resend_after_s}` (invalidates the previous code). `429 too_many_requests` with `retry_after_s`. Same 202 whether or not the account exists. |
+| ✅ | `POST /v1/auth/login {email, password, device}` | → `200` tokens. Never answers `email_not_verified` any more (all accounts count as verified; a migration sets `email_verified = 1`). Errors: `401 invalid_credentials` (also for an unknown email — no enumeration), `403 email_not_verified` (the server re-sends a code; include `resend_after_s` in `error`), `403 domain_not_allowed`, `429 too_many_attempts` (lockout, with `retry_after_s`). |
+| ❌ | `POST /v1/auth/password/forgot {email}` | ✅ Removed: `501 not_available` ("Password reset by email isn't available. Ask BAU BUILD support."). _Old contract:_ → always `202 {resend_after_s}` (no enumeration); emails a reset code if the account exists. `429 too_many_requests` only for rate limiting. |
+| ❌ | `POST /v1/auth/password/reset {email, code, new_password, device}` | ✅ Removed: `501 not_available`. _Old contract:_ → `200` tokens (signs in) and **revokes all other sessions**. Errors: `400 invalid_code`, `410 code_expired`, `422 weak_password`, `429 too_many_attempts`. |
 | ✅ | `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET /v1/me`, `GET/DELETE /v1/auth/sessions` | Unchanged. Refresh rotation; reuse → `401 refresh_reused`. Refresh also answers `403 domain_not_allowed` when the account's domain is no longer allowed (the app signs out and explains). |
+| ✅ | `POST /v1/admin/users/{id}/password {new_password}` | Admin only. Sets the password (`422 weak_password`), revokes all of that user's sessions → `{user_id, sessions_revoked}`. |
 | ❌ | `POST /v1/auth/microsoft/exchange` | No longer used by the apps. Microsoft sign-in can come back later as an extra option. |
 | ✅ | `GET /v1/me/entitlement`, billing endpoints | Phase 2 (paid non-BAU users). |
-| ✏️ | `GET /v1/me` | Add `roles[]`, `display_name`, `avatar_url`, `github_username`, `department`, `title`, `notification_preferences`. |
-| ✏️ | `PATCH /v1/me` | Today only `bio` + `skills` (bio can't be empty). Accept `display_name`, `bio` (empty allowed), `skills`, `github_username`. |
+| ✏️ | `GET /v1/me` | Add `roles[]`, `display_name`, `avatar_url`, `github_username`, `department`, `title`, `notification_preferences`. ✅ done except `notification_preferences`: `roles[]` (role + extra roles), `display_name` (= `name`), `avatar_url` (null until upload exists), `github_username` (typed one, else linked GitHub login), `department`, `title`. |
+| ✅ | `PATCH /v1/me` | Done: all optional — `display_name` (or `name`, 1–80), `bio` (0–280, empty allowed), `skills`, `github_username` (GitHub rules, leading `@` stripped, empty clears), `department` (≤80), `title` (≤80, staff/admin only → else `403 role_required`). |
 | 🆕 | `PUT /v1/me/avatar` | multipart `file` (jpeg/png ≤ 5 MB) → `{avatar_url}`; `DELETE` removes. |
 | 🆕 | `GET/PATCH /v1/me/notification-preferences` | Staff: `project_done`, `student_joined`, `blocker_raised`; students: `join_approved`, `review_update`, `urgent_inquiry`. |
 | ✅ | `POST/DELETE /v1/devices` | APNs (iOS/macOS) + FCM (Android) tokens; desktop Windows/Linux via in-app SSE only. |
@@ -82,14 +84,14 @@ Token responses are `{access_token, refresh_token, expires_in, user, entitlement
 | | Endpoint | Needed change |
 |---|---|---|
 | ✅ | `GET /v1/home`, `GET /v1/inquiries/urgent`, `GET /v1/projects`, `GET /v1/search` | — |
-| ✏️ | `GET /v1/projects/{id}` | Add `membership_status` (`none`, `member`, `pending_approval`) so "I'm In" isn't offered twice; add `repo_full_name` (`bau-build/<repo>`). |
+| ✅ | `GET /v1/projects/{id}` | Done (also on every project list): `membership_status`, `repo_full_name` (+ `repo.full_name`, `repo.viewer_github_linked`), `summary` (first sentence), `class_code`. Org = env `GITHUB_ORG` (default `bau-build`); a repo name with an owner is kept as is; an inquiry's GitHub `repo_url` becomes the project's repo. Was: add `membership_status` (`none`, `member`, `pending_approval`) so "I'm In" isn't offered twice; add `repo_full_name` (`bau-build/<repo>`). |
 | ✏️ | `GET /v1/projects` | Exclude (or flag) projects the caller already joined. |
 | ✅ | `POST /v1/projects/{id}/join`, `DELETE …/membership` | Emit `membership_changed` on the live stream. |
 | ✅ | `GET /v1/me/classes`, `GET /v1/classes/{id}/projects` | — |
 | ✅ | `GET /v1/me/work` | — |
-| ✏️ | `GET /v1/projects/{id}/tasks` | Each task needs `description`, `acceptance_criteria[]`, `due_date`, `priority` (`low`,`medium`,`high`), `resources[{label,url}]`, `branch` (once started). |
-| ✏️ | `PATCH /v1/tasks/{id}` | Accept `status` (✅) and `criteria_done[]` (ticked acceptance checks). |
-| ✏️ | `GET /v1/projects/{id}/changes` | Per commit: `sha`, `message`, `branch`, `status` (`approved`,`with_dev_lead`,`changes_requested`), `url` (diff). |
+| ✅ | `GET /v1/projects/{id}/tasks` | Done: `description`, `acceptance_criteria[]`, `priority`, `resources[{label,url}]`, `due_date`, `criteria_done[]` (seeded for all seed tasks; old rows back-filled by migration). `branch` still to come with §4. Was: each task needs `description`, `acceptance_criteria[]`, `due_date`, `priority` (`low`,`medium`,`high`), `resources[{label,url}]`, `branch` (once started). |
+| ✅ | `PATCH /v1/tasks/{id}` | Done: `status` and/or `criteria_done[]` (indexes into `acceptance_criteria`, de-duplicated and sorted; out of range → `400`). Returns the full task. |
+| ✅ | `GET /v1/projects/{id}/changes` | Done for submitted branches: each commit has `sha`, `message`, `branch`, `status`, `url` (+ old `state`, `diff_url`); top level adds `repo_full_name`. `POST …/submissions` accepts optional `message` + `sha`; without them `message` falls back to the branch name. `github_commits` stays `[]` — reading commits from GitHub needs the stored token (§4). Was: per commit: `sha`, `message`, `branch`, `status` (`approved`,`with_dev_lead`,`changes_requested`), `url` (diff). |
 | ✅ | submissions + timeline, lead queue, decisions | Link a submission to the task's **pull request** (see §4). |
 | ✅ | notifications, unread count, mark read | Types: `join_approved`, `review_update`, `urgent_inquiry`, `exam_graded`, `interview_booked`, `general`. |
 | ✅ | `GET /v1/events/stream` (SSE) | Events the apps react to: `membership_changed`, `task_updated`, `submission_updated`, `inquiry_updated`, `notification`, `exam_graded`. |
@@ -120,16 +122,16 @@ Admin approval may stay as an internal step but must be visible to the author as
 | ✏️ | `POST /v1/inquiries {draft, refined}` | Post directly as a project (status `posted`), keeping both versions. |
 | 🆕 | `POST /v1/inquiries/drafts` | Save draft; drafts appear in `/mine`. |
 | ✅ | `GET /v1/inquiries/mine`, `GET /v1/inquiries/{id}` | Return the extended model; filterable `?status=open|closed`. |
-| ✏️ | `PATCH /v1/inquiries/{id}` | Today only while `submitted` (`409 inquiry_locked`). Allow editing title, explanation, expectation, types, priority, deadline, reward while `posted`/`in_progress` — "the team sees changes right away" (emit event to members). |
-| 🆕 | `POST /v1/inquiries/{id}/cancel` | Any open status → `cancelled`; unspent budget counts as **wasted**. (`DELETE` stays for drafts.) |
+| ✅ | `PATCH /v1/inquiries/{id}` | Done: editable while `submitted`/`approved`/`published` (title, description, department, difficulty, bounty, is_urgent, due_at, min_score, joining, reviewer_type, repo_url). Changes are mirrored onto the project in the same transaction and members get an `inquiry_updated` event. `cancelled` → `409 inquiry_locked`. Was: today only while `submitted` (`409 inquiry_locked`). Allow editing title, explanation, expectation, types, priority, deadline, reward while `posted`/`in_progress` — "the team sees changes right away" (emit event to members). |
+| ✅ | `POST /v1/inquiries/{id}/cancel` | Done: author or admin → status `cancelled` + `cancelled_at`, project `closed` (no new joins), members notified; `wasted_usd` = bounty − paid. Already cancelled or delivered → `409 inquiry_locked`. `DELETE` only before publishing. Inquiries also carry `stage` (`draft|open|in_progress|delivered|cancelled`) and `updated_at`. |
 | 🆕 | `GET /v1/inquiries/{id}/progress` | `{today, day_of, total_days, percent_done, done_today[] (AI summary of commits/notes), blocker {id, text, raised_by, raised_at, resolved}, log[{date, summary, blockers}], students[]}`. |
 | 🆕 | `POST /v1/inquiries/{id}/blockers/{blocker_id}/resolve` | Students raise blockers via 🆕 `POST /v1/projects/{id}/blockers {text}`. |
-| 🆕 | `GET /v1/staff/overview?period=semester` | `{raised_usd, wasted_usd, open, in_progress, delivered, needs_attention}`. |
-| 🆕 | `GET /v1/world-projects` | Ideas shown when a staff member has no inquiries: `[{id, title, summary, organization, project_types[], url}]` (planned). |
+| ✅ | `GET /v1/staff/overview?period=semester` | Done (no `period` filter yet; all of the caller's inquiries): `{raised_usd, wasted_usd, open, in_progress, delivered, needs_attention: null}`. Mapping via `stage`: delivered = project `done` or an approved submission was paid (raised = its bounty); in_progress = ≥1 member; open = published with no member, or not yet published; wasted = `wasted_usd` of cancelled. |
+| ✅ | `GET /v1/world-projects` | Done: `{items:[{id, title, summary, organization, project_types[], url}]}` from the seeded `world_projects` table (6 ideas). |
 | 🆕 | `GET /v1/staff/profile` (or fields on `/v1/me`) | `department, title, classes_taught[]` (empty → app shows "No classes"), `projects_posted, delivered, raised_usd, senior_engineers[]`. |
 | — | Notifications | When done → notify author **and senior engineers (Ilias, Arian)**; when a student joins → author. |
-| 🆕 | `GET /v1/senior-engineers` | `{items:[{id, name, title, bio, avatar_url, skills[], github_username, email, roles[]}]}` — Ilias (Tech Lead Engineer) and Arian (Senior Engineer). Shown on the staff Profile; tapping one opens their bio. Same people are the Lead interviewers (§5.7). |
-| ✏️ | `GET /v1/users/{id}` | Public profile used for the bio sheet — add `title`, `email` (for staff viewers), `github_username`, `roles[]`. |
+| ✅ | `GET /v1/senior-engineers` | Done: users whose `roles` include `senior_engineer`/`interviewer`; seeded `ilias@bau.edu` (Tech Lead Engineer, `illiasab`) and `arian@bau.edu` (Senior Engineer) as staff with roles `[staff, interviewer, senior_engineer]`. Spec: `{items:[{id, name, title, bio, avatar_url, skills[], github_username, email, roles[]}]}` — Ilias (Tech Lead Engineer) and Arian (Senior Engineer). Shown on the staff Profile; tapping one opens their bio. Same people are the Lead interviewers (§5.7). |
+| ✅ | `GET /v1/users/{id}` | Done: `title`, `bio`, `skills`, `github_username`, `roles[]`; `email` only for staff/lead/admin viewers. Was: public profile used for the bio sheet — add `title`, `email` (for staff viewers), `github_username`, `roles[]`. |
 
 ---
 
@@ -249,12 +251,12 @@ device registration for push. The app will adopt these next.
   document both (the app signs out on either).
 - **`/v1/me`**: no `score`, `earnings`, `approved_projects` (only in `/v1/me/stats` — embed or document), no
   `github_username`, `avatar` always null.
-- **Projects**: `repo.name` is a bare name — send `repo.full_name` (`bau-build/<repo>`); `repo.connected` means "this
+- ✅ **Projects** (fixed 2026-11-19: `repo_full_name`, `repo.full_name`, `repo.viewer_github_linked`, `summary`, `class_code`, `membership_status`; `task_count` still missing): `repo.name` is a bare name — send `repo.full_name` (`bau-build/<repo>`); `repo.connected` means "this
   user linked GitHub", not "repo connected" — rename (`viewer_github_linked`); no `summary`, `task_count`,
   `class_code` (only `class_id`).
 - **My Work**: projects in `/v1/me/work` are slim (no difficulty, due date, description); no in-review/approved
   membership status.
-- **Changes**: a branch commit's `message` is the branch name; GitHub commits don't carry their branch.
+- ✅ **Changes** (fixed: real `message` when the client sends it with the submission, plus `sha`, `branch`, `status`, `url`; compare URLs now use the full repo name, also for old rows): a branch commit's `message` is the branch name; GitHub commits don't carry their branch.
 - **Notifications**: only `text` — add `type`, `title`, `project_id`.
 - **Urgent inquiries**: payload is a project (id = project id), no requester; `min_score` only as a label string —
   send the number.
@@ -265,12 +267,14 @@ device registration for push. The app will adopt these next.
 
 ## 9. Found in the Go server (2026-11-19)
 
-- **Auth routes**: email registration, verification, login, and password reset are in the Go server. Sending the code needs `SMTP_HOST`.
+- **Auth routes**: email + password registration and login are in the Go server, with no email step (see §1).
 - **GitHub token route missing**: the app calls `PUT /v1/integrations/github/token` (§4, `docs/BACKEND_GITHUB_TOKEN.md`);
   the Go server only has the OAuth connect → callback flow. Add the token route (the app keeps working and retries until
   it exists). `features.github` in `/v1/config` is `false` today; the app skips linking while it's false.
 - **Mentor AI**: `GET/POST /v1/projects/{id}/mentor/messages` exists (POST `{text}` ≤ 500 chars → SSE `delta` … `done`)
   but isn't in `docs/openapi.json` — document it and the app will wire the chat.
 - **Notifications**: returns at most 21 items and ignores `cursor` — implement paging.
-- **Not yet in the server**: `GET /v1/senior-engineers`, `GET /v1/world-projects` (app hides those sections on 404).
+- ✅ **Not yet in the server**: `GET /v1/senior-engineers`, `GET /v1/world-projects` (app hides those sections on 404). — Both exist now.
+- ✅ **Register without email**: `register` returns tokens (200), no SMTP; `domain_not_allowed` is checked first
+  (previously a gmail address got `503 email_not_configured`). Code routes answer `501 not_available`.
 - **`/healthz`** must be public (currently 401).

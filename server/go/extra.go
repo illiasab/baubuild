@@ -192,6 +192,9 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 	if status, payload, ok, err := mentorRoutes(tx, r, path, user, body); ok {
 		return status, payload, true, err
 	}
+	if status, payload, ok, err := gapRoutes(tx, r, path, user, body); ok {
+		return status, payload, true, err
+	}
 	switch {
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/v1/auth/sessions/"):
 		sessionID := strings.TrimPrefix(path, "/v1/auth/sessions/")
@@ -214,7 +217,8 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 		if row == nil {
 			return 0, nil, true, fail(404, "not_found", "That profile does not exist.")
 		}
-		pub, err := publicUserEmail(tx, row, false)
+		viewerIsStaff := requireStaff(user) == nil
+		pub, err := publicUserEmail(tx, row, viewerIsStaff)
 		return 200, pub, true, err
 	case r.Method == http.MethodGet && path == "/v1/inquiries/urgent":
 		rows, err := many(tx, `SELECT * FROM projects WHERE status = 'open' AND urgent = 1 ORDER BY due_at`)
@@ -355,27 +359,6 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 		}
 		_, err := tx.Exec(`DELETE FROM bookmarks WHERE user_id = ? AND project_id = ?`, str(user, "id"), projectID)
 		return 204, nil, true, err
-	case r.Method == http.MethodPatch && strings.HasPrefix(path, "/v1/tasks/"):
-		taskID := strings.TrimPrefix(path, "/v1/tasks/")
-		row, err := one(tx, `SELECT * FROM tasks WHERE id = ? AND user_id = ?`, taskID, str(user, "id"))
-		if err != nil {
-			return 0, nil, true, err
-		}
-		if row == nil {
-			return 0, nil, true, fail(404, "not_found", "That task is not yours.")
-		}
-		status := asString(body["status"])
-		if status != "todo" && status != "in_progress" && status != "done" {
-			return 0, nil, true, fail(400, "invalid_body", "status must be todo, in_progress, or done.")
-		}
-		if _, err := tx.Exec(`UPDATE tasks SET status = ? WHERE id = ?`, status, taskID); err != nil {
-			return 0, nil, true, err
-		}
-		fresh, err := one(tx, `SELECT * FROM tasks WHERE id = ?`, taskID)
-		if err != nil {
-			return 0, nil, true, err
-		}
-		return 200, map[string]any{"id": fresh["id"], "project_id": fresh["project_id"], "title": fresh["title"], "status": fresh["status"], "lane": fresh["lane"], "due_at": fresh["due_at"]}, true, nil
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/changes"):
 		projectID := id("/v1/projects/", "/changes")
 		project, err := requireProject(tx, projectID)
@@ -397,12 +380,12 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 			if _, ok := seen[name]; !ok {
 				order = append(order, name)
 			}
-			seen[name] = append(seen[name], map[string]any{"id": row["id"], "message": row["branch"], "state": row["lead_status"], "diff_url": row["diff_url"], "created_at": row["created_at"]})
+			seen[name] = append(seen[name], changeCommit(project, row))
 		}
 		for _, name := range order {
 			grouped = append(grouped, map[string]any{"name": name, "commits": seen[name]})
 		}
-		return 200, map[string]any{"connected": user["github_token"] != nil && str(user, "github_token") != "", "repo": project["repo_name"], "branches": grouped, "github_commits": []any{}}, true, nil
+		return 200, map[string]any{"connected": user["github_token"] != nil && str(user, "github_token") != "", "repo": project["repo_name"], "repo_full_name": repoFullName(project), "branches": grouped, "github_commits": []any{}}, true, nil
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/mentor/messages"):
 		projectID := id("/v1/projects/", "/mentor/messages")
 		if err := requireMember(tx, user, projectID); err != nil {
@@ -459,11 +442,8 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 		if err != nil {
 			return 0, nil, true, err
 		}
-		items := []any{}
-		for _, row := range rows {
-			items = append(items, inquiryPayload(row))
-		}
-		return 200, map[string]any{"items": items}, true, nil
+		items, err := inquiryViews(tx, rows)
+		return 200, map[string]any{"items": items}, true, err
 	case strings.HasPrefix(path, "/v1/inquiries/") && !strings.Contains(strings.TrimPrefix(path, "/v1/inquiries/"), "/"):
 		return inquiryOne(tx, r.Method, strings.TrimPrefix(path, "/v1/inquiries/"), user, body)
 	case r.Method == http.MethodPost && path == "/v1/admin/enrollments":
@@ -530,38 +510,40 @@ func inquiryOne(tx *sql.Tx, method, inquiryID string, user, body map[string]any)
 		return 0, nil, true, fail(403, "role_required", "Only @bau.edu staff can edit inquiries.")
 	}
 	if method == http.MethodGet {
-		return 200, inquiryPayload(row), true, nil
-	}
-	if str(row, "status") != "submitted" && method != http.MethodGet {
-		return 0, nil, true, fail(409, "inquiry_locked", "Only a submitted inquiry can be edited.")
+		out, err := inquiryView(tx, row)
+		return 200, out, true, err
 	}
 	if method == http.MethodDelete {
 		if str(row, "status") != "submitted" {
-			return 0, nil, true, fail(409, "inquiry_locked", "Only a submitted inquiry can be deleted.")
+			return 0, nil, true, fail(409, "inquiry_locked", "Only an inquiry that is not published yet can be deleted. Cancel it instead.")
 		}
 		_, err := tx.Exec(`DELETE FROM inquiries WHERE id = ?`, inquiryID)
 		return 204, nil, true, err
 	}
 	if method == http.MethodPatch {
-		fields, err := inquiryFields(body, true)
-		if err != nil {
-			return 0, nil, true, err
-		}
-		if len(fields) == 0 {
-			return 200, inquiryPayload(row), true, nil
-		}
-		sets := []string{}
-		args := []any{}
-		for key, value := range fields {
-			sets = append(sets, key+" = ?")
-			args = append(args, value)
-		}
-		args = append(args, inquiryID)
-		if _, err := tx.Exec(`UPDATE inquiries SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...); err != nil {
-			return 0, nil, true, err
-		}
-		fresh, err := one(tx, `SELECT * FROM inquiries WHERE id = ?`, inquiryID)
-		return 200, inquiryPayload(fresh), true, err
+		out, err := editInquiry(tx, row, body)
+		return 200, out, true, err
 	}
 	return 0, nil, false, nil
+}
+
+// changeCommit is one entry under a branch on /changes. message is the commit message the client sent with the
+// submission when there is one (older rows fall back to the branch name); url is the GitHub compare view.
+func changeCommit(project, row map[string]any) map[string]any {
+	message := str(row, "commit_message")
+	if message == "" {
+		message = str(row, "branch")
+	}
+	status := "with_dev_lead"
+	switch str(row, "lead_status") {
+	case "approved":
+		status = "approved"
+	case "sent_back":
+		status = "changes_requested"
+	}
+	diff := compareURL(project, str(row, "branch"))
+	return map[string]any{
+		"id": row["id"], "sha": nullable(row, "commit_sha"), "message": message, "branch": row["branch"],
+		"state": row["lead_status"], "status": status, "diff_url": diff, "url": diff, "created_at": row["created_at"],
+	}
 }
