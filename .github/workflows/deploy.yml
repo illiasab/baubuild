@@ -1,0 +1,36 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go/go.mod
+
+      - name: Build the Linux API
+        working-directory: server/go
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$RUNNER_TEMP/baubuild" .
+
+      - name: Publish the binary and restart the service
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: 144.202.2.208
+        run: |
+          test -n "$SSH_PRIVATE_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          SSH="ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes"
+          $SSH "root@$HOST" "install -d /opt/baybuild/docs"
+          scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes "$RUNNER_TEMP/baubuild" "root@$HOST:/opt/baybuild/baubuild.new"
+          scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes docs/index.html docs/openapi.json "root@$HOST:/opt/baybuild/docs/"
+          $SSH "root@$HOST" "mv /opt/baybuild/baubuild.new /opt/baybuild/baubuild && chmod 755 /opt/baybuild/baubuild && systemctl restart baybuild && systemctl is-active baybuild"
