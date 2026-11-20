@@ -22,12 +22,11 @@ import kotlinx.coroutines.sync.withLock
 /**
  * [ProfileRepository] on the BAU BUILD backend.
  *
- * `PATCH /v1/me` accepts only `bio` (1..280 chars) and `skills` (non-empty list of non-blank strings); omitted
- * keys are left unchanged, so a blank bio / empty skill list is simply not sent (the backend can't clear them).
- * Errors: 400 `invalid_body`.
+ * `PATCH /v1/me` with `display_name` (1..80 chars), `bio` (≤ 280, empty clears it), `skills` (non-empty list; an
+ * empty list is not sent because the backend can't clear skills) and `github_username` (`""` clears it). Omitted
+ * keys are left unchanged. Errors: 400 `invalid_body`.
  *
- * Backend gaps, kept on the device instead of failing the save: display name, GitHub username and avatar have
- * no backend field, and there is no avatar upload endpoint — [uploadAvatar] returns a `memory://` URL
+ * Backend gap kept on the device: there is no avatar upload endpoint — [uploadAvatar] returns a `memory://` URL
  * registered in [LocalImageStore], so it lasts only for this app run.
  */
 class HttpProfileRepository(
@@ -40,8 +39,13 @@ class HttpProfileRepository(
 
     override suspend fun updateProfile(update: ProfileUpdate): User {
         val body = UpdateMeDto(
-            bio = update.bio.trim().takeIf { it.isNotEmpty() }?.take(MAX_BIO),
+            displayName = update.displayName.trim().takeIf { it.isNotEmpty() }?.take(MAX_NAME),
+            bio = update.bio.trim().take(MAX_BIO),
             skills = update.skills.map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
+            githubUsername = update.githubUsername.trim().removePrefix("@"),
+            // Staff only; null = not sent.
+            department = update.department?.trim(),
+            title = update.title?.trim(),
         )
         val saved: UserDto = apiCall {
             client.patch("v1/me") {
@@ -55,13 +59,17 @@ class HttpProfileRepository(
             update.avatarUrl != null -> update.avatarUrl
             else -> base.avatarUrl
         }
+        val fresh = saved.toDomain(policy)
         return base.copy(
             bio = saved.bio.orEmpty(),
             skills = saved.skills,
             classCodes = saved.classes.ifEmpty { base.classCodes },
-            // Local only (no backend field yet).
-            displayName = update.displayName.trim().ifBlank { base.displayName },
-            githubUsername = update.githubUsername.trim().ifBlank { null },
+            // Older servers ignore display_name / github_username; fall back to what was typed.
+            displayName = if (saved.displayName != null) fresh.displayName else update.displayName.trim().ifBlank { base.displayName },
+            githubUsername = if (saved.displayName != null) fresh.githubUsername else update.githubUsername.trim().removePrefix("@").ifBlank { null },
+            title = fresh.title ?: base.title,
+            department = fresh.department ?: base.department,
+            roles = fresh.roles.ifEmpty { base.roles },
             avatarUrl = avatarUrl,
         )
     }
@@ -76,11 +84,12 @@ class HttpProfileRepository(
 
     private companion object {
         const val MAX_BIO = 280
+        const val MAX_NAME = 80
         const val MAX_AVATAR_BYTES = 5 * 1024 * 1024
     }
 }
 
-/** Backend user → [User]. Fields the backend doesn't return yet (score, earnings, GitHub) keep defaults. */
+/** Backend user → [User]. Fields the backend doesn't return here (score, earnings) keep defaults. */
 internal fun UserDto.toDomain(policy: AccountPolicy = AccountPolicy()): User {
     val kind = when {
         email != null -> policy.classify(email)
@@ -89,7 +98,7 @@ internal fun UserDto.toDomain(policy: AccountPolicy = AccountPolicy()): User {
     }
     return User(
         id = id,
-        displayName = name,
+        displayName = displayName?.takeIf { it.isNotBlank() } ?: name,
         email = email.orEmpty(),
         kind = kind,
         role = when (role) {
@@ -100,5 +109,10 @@ internal fun UserDto.toDomain(policy: AccountPolicy = AccountPolicy()): User {
         bio = bio.orEmpty(),
         skills = skills,
         classCodes = classes,
+        avatarUrl = avatarUrl?.takeIf { it.isNotBlank() },
+        githubUsername = githubUsername?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() },
+        title = title?.trim()?.takeIf { it.isNotBlank() },
+        department = department?.trim()?.takeIf { it.isNotBlank() },
+        roles = roles,
     )
 }

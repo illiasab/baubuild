@@ -229,7 +229,8 @@ private fun Destination(route: ProjectsRoute, navigator: ProjectsNavigator, seed
             val vm = viewModel {
                 ProjectDetailViewModel(
                     route.projectId, graph.projectRepository, graph.session.state, seeds[route.projectId],
-                    isGitHubConnected = { graph.gitHubRepository.account.value != null },
+                    // No "connect GitHub" prompt while `features.github` is off.
+                            isGitHubConnected = { !graph.gitHubEnabled || graph.gitHubRepository.account.value != null },
                 )
             }
             val state by vm.state.collectAsStateWithLifecycle()

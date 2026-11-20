@@ -3,6 +3,7 @@ import renderProjects, { forgetProject } from './projects.js';
 import {
   h, str, num, money, difficultyLabel, minScoreLabel, dueChip, shortDate, chip, button, textLink,
   sidePanel, loadingView, errorView, eligibilityMessage, githubUrl, go, toast, errorText,
+  repoFullName, membershipOf, copyText, icon,
 } from './_kit.js';
 
 export default async function render(root, ctx) {
@@ -29,9 +30,12 @@ export default async function render(root, ctx) {
 
   function paint(project, joinError = null, joining = false) {
     const urgent = project.urgent === true;
-    panel.setEyebrow(['Project', project.department].filter(Boolean).join(' · ').toUpperCase());
-    const repoName = str(project.repo?.name);
+    panel.setEyebrow(['Project', project.class_code, project.department].filter(Boolean).join(' · ').toUpperCase());
+    const repoName = repoFullName(project) || str(project.repo?.name);
     const repoLink = githubUrl(repoName);
+    const cloneUrl = repoLink ? `${repoLink}.git` : null;
+    const summary = str(project.summary).trim();
+    const description = str(project.description).trim();
     const due = dueChip(project.due_at);
     const reviewer = str(project.reviewer_label) || (str(project.reviewed_by) === 'professor' ? 'professor' : 'dev lead');
 
@@ -47,25 +51,31 @@ export default async function render(root, ctx) {
         stat('Difficulty', difficultyLabel(project.difficulty)),
         stat('Due', project.due_at ? shortDate(project.due_at) : 'No date'),
         stat('Min score', num(project.min_score) > 0 ? String(num(project.min_score)) : 'Any')),
-      project.description ? h('section', { class: 'sp-panel-section' },
+      description || summary ? h('section', { class: 'sp-panel-section' },
         h('h3', { class: 'sp-panel-h' }, 'About'),
-        h('p', { class: 'sp-prose' }, str(project.description))) : null,
+        h('p', { class: 'sp-prose' }, description || summary)) : null,
       h('section', { class: 'sp-panel-section' },
         h('h3', { class: 'sp-panel-h' }, 'Details'),
         h('div', { class: 'sp-rows' },
+          project.class_code ? row('Class', h('span', { class: 'sp-mono' }, str(project.class_code))) : null,
           row('Repository', repoName ? (repoLink ? textLink(repoName, { href: repoLink, external: true }) : h('span', { class: 'sp-mono' }, repoName)) : 'Not linked yet'),
+          cloneUrl ? row('Clone URL', h('span', { class: 'sp-clone' },
+            h('code', { class: 'sp-code' }, cloneUrl),
+            h('button', { type: 'button', class: 'sp-icon-btn sp-icon-btn--sm', 'aria-label': 'Copy clone URL', onclick: () => copyText(ctx, cloneUrl, 'Clone URL copied') }, icon('copy', 14)))) : null,
           row('Joining', str(project.joining) === 'everyone' ? 'Everyone welcome. You’re in straight away.' : `Request to join. The ${reviewer} approves.`),
           row('Reviewer', str(project.reviewed_by) === 'professor' ? `The ${reviewer}` : `AI review, then the ${reviewer}`),
           row('Minimum score', minScoreLabel(project)))),
     );
 
-    const mine = str(project.my_membership?.status);
+    const mine = membershipOf(project);
     const eligible = project.eligibility?.eligible !== false;
     const everyone = str(project.joining) === 'everyone';
-    if (mine === 'joined') {
+    if (mine === 'member') {
       panel.setFooter(
         h('p', { class: 'sp-footnote' }, 'You’re in this project.'),
-        button('Open workspace', { kind: 'primary', onClick: () => go(ctx, `#/my-work/${encodeURIComponent(project.id)}`) }));
+        h('div', { class: 'sp-panel-actions' },
+          repoLink ? h('a', { class: 'btn btn-secondary sp-btn', href: repoLink, target: '_blank', rel: 'noopener noreferrer' }, icon('external', 16), 'Open in GitHub') : null,
+          button('Open workspace', { kind: 'primary', onClick: () => go(ctx, `#/my-work/${encodeURIComponent(project.id)}`) })));
     } else if (mine === 'pending_approval') {
       panel.setFooter(
         h('p', { class: 'sp-footnote' }, `Request sent. Waiting on the ${reviewer}.`),

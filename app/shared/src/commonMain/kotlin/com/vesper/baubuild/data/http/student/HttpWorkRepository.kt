@@ -44,6 +44,7 @@ import kotlinx.coroutines.coroutineScope
  *   `GET /v1/submissions/{id}`), newest first, plus each distinct project.
  * - [updateTaskStatus]: `PATCH /v1/tasks/{id}` `{"status": "todo" | "in_progress" | "done"}` (404 `not_found`
  *   when the task isn't the caller's, 400 `invalid_body`).
+ * - [updateTaskCriteria]: `PATCH /v1/tasks/{id}` `{"criteria_done": [indexes]}` → the full task.
  */
 class HttpWorkRepository(
     private val client: HttpClient,
@@ -66,10 +67,15 @@ class HttpWorkRepository(
         val changes = async { apiCall { client.get("v1/projects/$id/changes").body<ChangesDto>() } }
         val n = now()
         val taskList = tasks.await().items.map { it.toDomain(n) }
+        val changeList = changes.await()
+        val p = project.await()
         Workspace(
-            project = project.await().copy(taskCount = taskList.size),
+            project = p.copy(
+                taskCount = taskList.size,
+                repoFullName = p.repoFullName ?: changeList.repoFullName?.trim()?.trim('/')?.takeIf { '/' in it },
+            ),
             tasks = taskList,
-            changes = changes.await().toDomain(),
+            changes = changeList.toDomain(),
         )
     }
 
@@ -85,7 +91,17 @@ class HttpWorkRepository(
         val task: TaskDto = apiCall {
             client.patch("v1/tasks/${taskId.encodeURLPathPart()}") {
                 contentType(ContentType.Application.Json)
-                setBody(TaskPatchDto(Wire.taskStatus(status)))
+                setBody(TaskPatchDto(status = Wire.taskStatus(status)))
+            }.body()
+        }
+        return task.toDomain(now())
+    }
+
+    override suspend fun updateTaskCriteria(projectId: String, taskId: String, criteriaDone: Set<Int>): ProjectTask {
+        val task: TaskDto = apiCall {
+            client.patch("v1/tasks/${taskId.encodeURLPathPart()}") {
+                contentType(ContentType.Application.Json)
+                setBody(TaskPatchDto(criteriaDone = criteriaDone.sorted()))
             }.body()
         }
         return task.toDomain(now())

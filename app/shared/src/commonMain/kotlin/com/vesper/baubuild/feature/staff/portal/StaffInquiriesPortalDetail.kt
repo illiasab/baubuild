@@ -1,5 +1,6 @@
 package com.vesper.baubuild.feature.staff.portal
 
+import com.vesper.baubuild.feature.staff.inquiries.cancelConfirmText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -463,17 +464,11 @@ private val FieldLabel = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Sem
 
 @Composable
 private fun CancelDialog(state: InquiryDetailUiState, viewModel: InquiryDetailViewModel) {
-    val budget = state.data?.rewardLabel?.takeIf { it.isNotBlank() && it != "—" }
+    val inquiry = state.data
     AlertDialog(
         onDismissRequest = viewModel::dismissCancel,
-        title = { Text("Cancel this inquiry?") },
-        text = {
-            Text(
-                "Students stop working on it" +
-                    (if (budget != null) " and the unspent budget ($budget) counts as wasted." else ".") +
-                    " This can’t be undone.",
-            )
-        },
+        title = { Text(if (inquiry?.canDelete == true) "Withdraw this inquiry?" else "Cancel this inquiry?") },
+        text = { Text(inquiry?.cancelConfirmText() ?: "This can’t be undone.") },
         confirmButton = { StaffPortalButton("Cancel inquiry", onClick = viewModel::confirmCancel, style = StaffPortalButtonStyle.Danger) },
         dismissButton = { StaffPortalButton("Keep it", onClick = viewModel::dismissCancel) },
         containerColor = BauColors.Surface,

@@ -12,7 +12,7 @@ Design reference: https://baybuild.vercel.app/ (tab "iOS app").
 | `core/model` | Serializable domain models + `AccountPolicy` (email-domain rules) + `PasswordCheck` (client mirror of the password rule). |
 | `core/session` | `SessionStore` (StateFlow of `SessionState`), `TokenStore` for the backend's access + refresh tokens (Keychain / Keystore). |
 | `core/auth` | Android only: `AuthPlatform.init(context)` (the app `Context` for secure storage, device info, flags). Sign-in itself is plain email + password — see **Sign-in** below. |
-| `core/network` | `ApiConfig` (base `https://api.baubuild.vesperconnect.org/`, debug override below), `AppJson`, Ktor client with retry/backoff, Bearer access token + automatic refresh (never on the public `/v1/auth/…` routes — only `logout` carries the token), `ApiException` (`apiCall {}`, with `retry_after_s` / `resend_after_s` hints) from the backend's `{"error":{"code","message"}}`. |
+| `core/network` | `ApiConfig` (base `https://api.baubuild.vesperconnect.org/`, debug override below), `AppJson`, Ktor client with retry/backoff, Bearer access token + automatic refresh (never on the public `/v1/auth/…` routes — only `logout` carries the token), `ApiException` (`apiCall {}`, with `retry_after_s` hints) from the backend's `{"error":{"code","message"}}`. |
 | `core/LoadState*.kt` | `LoadState<T>` and `MutableStateFlow<LoadState<T>>.load {}` helper. |
 | `data/repository` | Repository interfaces (the contract with the backend; real implementations in `data/http`). |
 | `data/http` | Real backend repositories (`auth`, `config`, `student`, `staff`). Contract: `docs/openapi.json` + `docs/index.html`; backend needs: `docs/BACKEND_REQUIREMENTS.md`. |
@@ -66,26 +66,24 @@ Design reference: https://baybuild.vercel.app/ (tab "iOS app").
 
 ## Sign-in
 
-Plain **email + password** accounts recorded in Postgres at registration — **no email is ever sent** (no SMTP, no
-codes). `POST /v1/auth/register` returns tokens like log-in, so **Sign Up signs in directly**. `verify-email`,
-`resend-code`, `password/forgot` and `password/reset` answer `501 not_available`; a forgotten password is reset by
-BAU BUILD support (`support@baubuild.vesperconnect.org`).
+Plain **email + password** accounts recorded in Postgres at registration. No email is ever sent and there are no
+codes anywhere in the apps. `POST /v1/auth/register` returns tokens like log-in, so **Sign Up signs in directly**; a
+forgotten password is reset by BAU BUILD support (`support@baubuild.vesperconnect.org`). Seeded senior-engineer
+emails answer register with `409 account_reserved` ("This account is reserved. Ask a BAU BUILD admin to activate it.").
 Only `@stu.bau.edu` (students) and `@bau.edu` (staff) may register and use the app; the server enforces it on register,
 login and every token refresh, and `AccountPolicy` mirrors it offline so no request is sent for another domain.
 
-- `AuthRepository` (`data/repository`): `register`, `verifyEmail`, `resendCode(purpose)`, `login`, `forgotPassword`,
-  `resetPassword`, `me`, `signOut`, each returning a typed sealed result (`AuthOutcome.*`: `SignedIn`,
-  `VerificationRequired` (legacy server only), `NotAvailable` (501), `EmailTaken`, `InvalidCredentials`,
-  `TooManyAttempts`, …).
-  `HttpAuthRepository` stores the session (`SessionStore.signedIn`) whenever tokens come back.
+- `AuthRepository` (`data/repository`): `register`, `login`, `me`, `signOut`, each returning a typed sealed result
+  (`AuthOutcome.*`: `SignedIn`, `EmailTaken`, `InvalidCredentials`, `TooManyAttempts`, …).
+  `HttpAuthRepository` stores the session (`SessionStore.signedIn`) whenever tokens come back. A register answer
+  without tokens is shown as "Couldn't create the account. Try again."
 - `feature/auth`: `AuthRoot` hosts Welcome → Log In / Sign Up (→ signed in) and Forgot Password (a card: "Ask BAU
   BUILD support" with a mailto link and Back to Log In), plus **Not Allowed** for a server
   `domain_not_allowed` (also after a refresh refused the domain: `SignOutReason.DomainNotAllowed`). `AuthViewModel`
   owns navigation; each form has its own ViewModel and reports back through `AuthNavigator`. Mobile and desktop
-  (`feature/auth/desktop`) render the same ViewModels. Verify Email (6-digit code) is kept only for a legacy server
-  that answers register with `202 verification_required`. The web portal (`static/js/auth.js`) behaves the same.
+  (`feature/auth/desktop`) render the same ViewModels. The web portal (`static/js/auth.js`) behaves the same.
 - Fields: IME Next/Done chain the fields and Done submits; autofill content types (name, username/email,
-  new password, password, one-time code); secure entry with Show/Hide; `AuthSubScreen` uses `imePadding` + scroll so
+  new password, password); secure entry with Show/Hide; `AuthSubScreen` uses `imePadding` + scroll so
   the keyboard never hides the primary button.
 
 ## Backend URL and local testing

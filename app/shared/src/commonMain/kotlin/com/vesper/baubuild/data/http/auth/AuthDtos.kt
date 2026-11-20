@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
-/** `device` in the register / login / verify-email / password-reset bodies. */
+/** `device` in the register / login bodies. */
 @Serializable
 internal data class DeviceDto(
     val platform: String,
@@ -28,46 +28,13 @@ internal data class RegisterRequestDto(
     override fun toString(): String = "RegisterRequestDto(email=$email)"
 }
 
-/** `POST /v1/auth/verify-email`. */
-@Serializable
-internal data class VerifyEmailRequestDto(val email: String, val code: String, val device: DeviceDto) {
-    override fun toString(): String = "VerifyEmailRequestDto(email=$email)"
-}
-
-/** `POST /v1/auth/resend-code`; `purpose` is `verify` or `reset`. */
-@Serializable
-internal data class ResendCodeRequestDto(val email: String, val purpose: String)
-
 /** `POST /v1/auth/login`. Never log: [toString] hides the password. */
 @Serializable
 internal data class LoginRequestDto(val email: String, val password: String, val device: DeviceDto) {
     override fun toString(): String = "LoginRequestDto(email=$email)"
 }
 
-/** `POST /v1/auth/password/forgot`. */
-@Serializable
-internal data class ForgotPasswordRequestDto(val email: String)
-
-/** `POST /v1/auth/password/reset`. Never log: [toString] hides the password and code. */
-@Serializable
-internal data class ResetPasswordRequestDto(
-    val email: String,
-    val code: String,
-    @SerialName("new_password") val newPassword: String,
-    val device: DeviceDto,
-) {
-    override fun toString(): String = "ResetPasswordRequestDto(email=$email)"
-}
-
-/** 202 of `POST /v1/auth/register`, `resend-code` and `password/forgot` (fields optional: lenient decoding). */
-@Serializable
-internal data class CodeSentDto(
-    @SerialName("verification_required") val verificationRequired: Boolean? = null,
-    val email: String? = null,
-    @SerialName("resend_after_s") val resendAfterSeconds: Long? = null,
-)
-
-/** 200 of `POST /v1/auth/login`, `verify-email`, `password/reset` (and `POST /v1/auth/refresh`). */
+/** 200 of `POST /v1/auth/register`, `POST /v1/auth/login` (and `POST /v1/auth/refresh`). */
 @Serializable
 internal data class TokenResponseDto(
     @SerialName("access_token") val accessToken: String,
@@ -104,6 +71,11 @@ internal data class AuthUserDto(
     val skills: List<String> = emptyList(),
     val classes: List<String> = emptyList(),
     val email: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+    val title: String? = null,
+    @SerialName("github_username") val githubUsername: String? = null,
+    val roles: List<String> = emptyList(),
 )
 
 /**
@@ -127,13 +99,18 @@ internal fun AuthUserDto.toUser(policy: AccountPolicy = AccountPolicy()): User {
     }
     return User(
         id = id,
-        displayName = name?.takeIf { it.isNotBlank() } ?: address.substringBefore('@').ifEmpty { "BAU member" },
+        displayName = displayName?.takeIf { it.isNotBlank() } ?: name?.takeIf { it.isNotBlank() } ?: address.substringBefore('@').ifEmpty { "BAU member" },
         email = address,
         kind = kind,
         role = appRole,
         bio = bio.orEmpty(),
         skills = skills,
         classCodes = classes,
-        avatarUrl = (avatar as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() },
+        avatarUrl = avatarUrl?.takeIf { it.isNotBlank() }
+            ?: (avatar as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() },
+        githubUsername = githubUsername?.trim()?.removePrefix("@")?.takeIf { it.isNotBlank() },
+        title = title?.trim()?.takeIf { it.isNotBlank() },
+        department = department?.trim()?.takeIf { it.isNotBlank() },
+        roles = roles,
     )
 }

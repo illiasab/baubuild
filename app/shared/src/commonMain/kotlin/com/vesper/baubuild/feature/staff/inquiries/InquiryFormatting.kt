@@ -53,6 +53,19 @@ val StaffInquiry.detailMeta: String
         reviewedBy?.takeIf { it.isNotBlank() }?.let { add("$it reviews") }
     }.joinToString(" · ")
 
+/**
+ * Body of the "Cancel this inquiry?" confirmation. Not yet published → it is simply withdrawn (deleted). Published →
+ * students stop and the unpaid budget (the cash reward) counts as wasted.
+ */
+fun StaffInquiry.cancelConfirmText(): String {
+    if (canDelete) return "It hasn’t been published yet, so it’s withdrawn and deleted. No budget is wasted."
+    val budget = draft.priceUsd?.takeIf { it > 0 }?.let { "\$$it" }
+        ?: rewardLabel.takeIf { it.isNotBlank() && it != "—" }
+    return "Students stop working on it" +
+        (if (budget != null) " and the unspent budget ($budget) counts as wasted." else ".") +
+        " This can’t be undone."
+}
+
 /** "Hello, Dr. Hale" for professors, "Hello, Nora" otherwise. Null when nobody is signed in. */
 fun staffGreeting(user: User?, profile: StaffProfile?): String? {
     if (user == null) return null
@@ -62,7 +75,8 @@ fun staffGreeting(user: User?, profile: StaffProfile?): String? {
         .map { part -> part.replaceFirstChar { it.uppercase() } }
     val first = words.firstOrNull() ?: fromEmail.firstOrNull()
     val last = (if (words.size >= 2) words.last() else null) ?: fromEmail.takeIf { it.size >= 2 }?.last()
-    val isProfessor = profile?.title?.contains("professor", ignoreCase = true) == true
+    val title = user.title?.takeIf { it.isNotBlank() } ?: profile?.title
+    val isProfessor = title?.contains("professor", ignoreCase = true) == true
     return when {
         isProfessor && last != null -> "Hello, Dr. $last"
         first != null -> "Hello, $first"

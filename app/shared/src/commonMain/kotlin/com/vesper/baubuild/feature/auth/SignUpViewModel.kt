@@ -54,7 +54,7 @@ data class SignUpUiState(
 /**
  * Sign Up: full name, BAU email (validated offline with [AccountPolicy] before any request), password + confirm,
  * terms. "Create Account" registers and signs in directly (the repository stores the session, so the shell switches).
- * A legacy server that answers 202 verification required still moves the flow to Verify Email.
+ * A reply without tokens shows "Couldn’t create the account. Try again."
  */
 class SignUpViewModel(
     private val repository: AuthRepository,
@@ -91,13 +91,11 @@ class SignUpViewModel(
             try {
                 when (val result = repository.register(s.name.trim(), email, s.password)) {
                     is AuthOutcome.SignedIn -> _state.update { it.copy(submitting = false) }
-                    is AuthOutcome.VerificationRequired -> {
-                        _state.update { it.copy(submitting = false) }
-                        navigator.openVerifyEmail(result.email.ifBlank { email }, result.resendAfterSeconds)
-                    }
+                    AuthOutcome.NotCreated -> _state.update { it.copy(submitting = false, error = MSG_NOT_CREATED) }
                     AuthOutcome.DomainNotAllowed -> _state.update { it.copy(submitting = false, error = MSG_BAU_ONLY) }
                     AuthOutcome.EmailTaken -> _state.update { it.copy(submitting = false, emailTaken = true) }
                     AuthOutcome.WeakPassword -> _state.update { it.copy(submitting = false, error = MSG_WEAK_PASSWORD) }
+                    AuthOutcome.AccountReserved -> _state.update { it.copy(submitting = false, error = MSG_ACCOUNT_RESERVED) }
                 }
             } catch (e: CancellationException) {
                 throw e

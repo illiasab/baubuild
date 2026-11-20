@@ -117,7 +117,7 @@ fun EditProfileScreen(
 @Composable
 fun rememberEditProfileViewModel(key: Any): EditProfileViewModel =
     viewModel(key = "EditProfile#$key") { EditProfileViewModel(AppGraph.current.session, AppGraph.current.profileRepository) {
-        AppGraph.current.gitHubRepository.account.value?.login
+        AppGraph.current.gitHubOrNull()?.account?.value?.login
     } }
 
 /**
@@ -148,6 +148,8 @@ fun EditProfileForm(
         modifier = modifier,
         showStudentFields = showStudentFields,
         connectedGitHub = connectedGitHub,
+        onTitleChange = vm::onTitleChange,
+        onDepartmentChange = vm::onDepartmentChange,
     )
 }
 
@@ -170,6 +172,8 @@ fun EditProfileForm(
     modifier: Modifier = Modifier,
     showStudentFields: Boolean = true,
     connectedGitHub: ConnectedGitHub? = null,
+    onTitleChange: (String) -> Unit = {},
+    onDepartmentChange: (String) -> Unit = {},
 ) {
     val user = state.original ?: return
     val enabled = !state.saving
@@ -185,6 +189,27 @@ fun EditProfileForm(
                 shape = FieldShape, colors = bauFieldColors(),
             )
             state.nameError?.let { Hint(it, BauColors.Danger) }
+        }
+
+        if (state.isStaff && !showStudentFields) {
+            Field("Title") {
+                OutlinedTextField(
+                    value = state.title, onValueChange = onTitleChange, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    placeholder = { Text("Professor, Lecturer, Administrator…", color = BauColors.TextTertiary) },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                    shape = FieldShape, colors = bauFieldColors(),
+                )
+            }
+            Field("Department") {
+                OutlinedTextField(
+                    value = state.department, onValueChange = onDepartmentChange, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    placeholder = { Text("Computer Engineering", color = BauColors.TextTertiary) },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                    shape = FieldShape, colors = bauFieldColors(),
+                )
+            }
         }
 
         Field("Bio") {

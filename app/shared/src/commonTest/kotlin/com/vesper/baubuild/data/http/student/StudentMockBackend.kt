@@ -186,6 +186,47 @@ internal object Fixtures {
          "email": "sam@stu.bau.edu"}
     """
 
+    /** `PATCH /v1/me` reply from the current server (display_name, github_username, title, roles). */
+    const val ME_V2 = """
+        {"id": "u1", "name": "Sam S.", "display_name": "Sam S.", "initials": "SS", "avatar": null, "avatar_url": null,
+         "bio": "", "role": "student", "department": "Computer Engineering", "skills": ["Kotlin", "SQL"],
+         "classes": ["CMPS433"], "email": "sam@stu.bau.edu", "title": null, "github_username": "samdev",
+         "roles": ["student"]}
+    """
+
+    /** Current server's tasks: the brief, acceptance criteria, priority, resources and ticked criteria. */
+    const val TASKS_V2 = """
+        {"items": [
+          {"id": "t1", "project_id": "library", "title": "Reject past dates in the booking form", "status": "in_progress",
+           "lane": "assigned", "due_at": "2026-11-22T10:00:00Z", "due_date": "2026-11-22",
+           "description": "Parse the chosen date and compare it with today.",
+           "acceptance_criteria": ["Yesterday is refused", "Today still submits", " "],
+           "priority": "high",
+           "resources": [{"label": "MDN: Date", "url": "https://developer.mozilla.org/Date"}, {"label": "bad", "url": "javascript:alert(1)"}],
+           "criteria_done": [1, 7],
+           "future": true},
+          {"id": "t2", "project_id": "library", "title": "Add a test", "status": "todo", "lane": "backlog", "due_at": null,
+           "due_date": null, "description": "", "acceptance_criteria": [], "priority": "weird", "resources": [], "criteria_done": []}
+        ]}
+    """
+
+    const val CHANGES_V2 = """
+        {
+          "connected": false,
+          "repo": "library-booking",
+          "repo_full_name": "bau-build/library-booking",
+          "branches": [
+            {"name": "fix-date-validation", "commits": [
+              {"id": "s2", "sha": "abc1234", "message": "Reject dates before today\n\nbody", "branch": "fix-date-validation",
+               "state": "sent_back", "status": "changes_requested",
+               "diff_url": "https://github.com/bau-build/library-booking/compare/fix-date-validation",
+               "url": "https://github.com/bau-build/library-booking/compare/fix-date-validation", "created_at": "2026-11-18T10:00:00Z"}
+            ]}
+          ],
+          "github_commits": [{"sha": "fedcba9876543", "message": "Pushed", "url": null}]
+        }
+    """
+
     const val HOME = """
         {
           "greeting_name": "Sam",

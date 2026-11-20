@@ -103,7 +103,7 @@ internal fun PortalTaskOverlay(
             key(id) {
                 ScopedViewModels {
                     val repo = AppGraph.current.workRepository
-                    val vm = viewModel { TaskDetailViewModel(repo, projectId, id, github = AppGraph.current.gitHubRepository) }
+                    val vm = viewModel { TaskDetailViewModel(repo, projectId, id, github = AppGraph.current.gitHubOrNull()) }
                     val state by vm.state.collectAsStateWithLifecycle()
                     TaskCodeEffects(state, vm, onOpenCode = { onOpenCode(id) })
                     PortalTaskDetailPanel(

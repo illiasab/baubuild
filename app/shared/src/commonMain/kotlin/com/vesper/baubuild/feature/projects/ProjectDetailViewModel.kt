@@ -39,9 +39,17 @@ data class ProjectDetailUiState(
     val eligibility: JoinEligibility?
         get() = project.dataOrNull?.eligibilityFor(viewer.score)
 
+    /**
+     * Membership the backend already reports (`membership_status`) when the viewer opens the project: they're in or
+     * their request is pending. The CTA is replaced by "You're in" / "Request sent".
+     */
+    val existingMembership: MembershipStatus?
+        get() = if (join is JoinState.Joined) null else project.dataOrNull?.membership
+
     /** The CTA is tappable only for a loaded project the viewer qualifies for and has not joined yet. */
     val canJoin: Boolean
-        get() = eligibility == JoinEligibility.Eligible && (join is JoinState.Idle || join is JoinState.Failed)
+        get() = existingMembership == null && eligibility == JoinEligibility.Eligible &&
+            (join is JoinState.Idle || join is JoinState.Failed)
 }
 
 class ProjectDetailViewModel(

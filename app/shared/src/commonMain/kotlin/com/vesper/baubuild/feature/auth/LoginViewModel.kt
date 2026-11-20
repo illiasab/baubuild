@@ -25,9 +25,8 @@ data class LoginUiState(
 }
 
 /**
- * Log In with email + password. Non-BAU addresses are refused locally (no request). `email_not_verified` moves to
- * Verify Email (the server has re-sent a code); `domain_not_allowed` opens Not Allowed; a lockout shows how long
- * to wait. On success the repository stores the session and the app leaves the auth flow.
+ * Log In with email + password. Non-BAU addresses are refused locally (no request). `domain_not_allowed` opens
+ * Not Allowed; a lockout shows how long to wait. On success the repository stores the session and the app leaves the auth flow.
  */
 class LoginViewModel(
     private val repository: AuthRepository,
@@ -59,10 +58,6 @@ class LoginViewModel(
                 when (val result = repository.login(email, s.password)) {
                     is AuthOutcome.SignedIn -> _state.update { it.copy(submitting = false) }
                     AuthOutcome.InvalidCredentials -> _state.update { it.copy(submitting = false, error = MSG_INVALID_CREDENTIALS) }
-                    is AuthOutcome.VerificationRequired -> {
-                        _state.update { it.copy(submitting = false) }
-                        navigator.openVerifyEmail(result.email.ifBlank { email }, result.resendAfterSeconds)
-                    }
                     AuthOutcome.DomainNotAllowed -> {
                         _state.update { it.copy(submitting = false) }
                         navigator.showNotAllowed(email)

@@ -23,14 +23,12 @@ sealed interface AuthStatus {
 }
 
 /** Screens inside the signed-out flow. [Welcome] is the root; the others sit on top of it. */
-enum class AuthScreen { Welcome, Login, SignUp, VerifyEmail, ForgotPassword }
+enum class AuthScreen { Welcome, Login, SignUp, ForgotPassword }
 
 data class AuthUiState(
     val status: AuthStatus = AuthStatus.Idle,
     /** In-auth back stack, root first. Never empty. */
     val backStack: List<AuthScreen> = listOf(AuthScreen.Welcome),
-    /** Set while (or after) Verify Email is shown: the address waiting for its code. */
-    val verification: PendingVerification? = null,
 ) {
     val screen: AuthScreen get() = backStack.last()
     val canGoBack: Boolean get() = backStack.size > 1
@@ -38,8 +36,8 @@ data class AuthUiState(
 }
 
 /**
- * Navigation of the signed-out flow (Welcome → Log In / Sign Up, Forgot Password; legacy Verify Email) and the Not Allowed
- * screen. The forms ([SignUpViewModel], [LoginViewModel], [VerifyEmailViewModel]) talk to
+ * Navigation of the signed-out flow (Welcome → Log In / Sign Up, Forgot Password) and the Not Allowed
+ * screen. The forms ([SignUpViewModel], [LoginViewModel]) talk to
  * the repository themselves and report back through [AuthNavigator]. A session that the app ended because the
  * server refused the domain ([SignOutReason.DomainNotAllowed], e.g. on token refresh) opens Not Allowed too.
  *
@@ -53,12 +51,10 @@ class AuthViewModel(
 
     private val _state = MutableStateFlow(
         AuthUiState(
-            backStack = listOfNotNull(AuthScreen.Welcome, initialScreen?.takeIf { it != AuthScreen.Welcome && it != AuthScreen.VerifyEmail }),
+            backStack = listOfNotNull(AuthScreen.Welcome, initialScreen?.takeIf { it != AuthScreen.Welcome }),
         ),
     )
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
-
-    private var verificationIds = 0L
 
     init {
         viewModelScope.launch {
@@ -69,12 +65,6 @@ class AuthViewModel(
                 session.consumeSignOutReason()
             }
         }
-    }
-
-    override fun openVerifyEmail(email: String, resendAfterSeconds: Long?) {
-        val pending = PendingVerification(++verificationIds, email.trim(), resendAfterSeconds)
-        _state.update { it.copy(verification = pending) }
-        navigateTo(AuthScreen.VerifyEmail)
     }
 
     override fun showNotAllowed(email: String) {

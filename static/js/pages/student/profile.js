@@ -1,7 +1,7 @@
 // Profile: identity, professional rows, GitHub, Become a Lead, score card, earnings, sign out.
 import {
   h, str, num, list, money, capital, button, textLink, pageHead, loader, modal, toast, confirmAction, errorText,
-  monoLabel, cardStrip, safeUrl, icon,
+  monoLabel, cardStrip, safeUrl, icon, githubEnabled, GITHUB_OFF_NOTE,
 } from './_kit.js';
 
 const TIERS = [
@@ -26,21 +26,22 @@ export default async function render(root, ctx) {
     initial: cached,
     isAlive: () => alive && body.isConnected,
     load: async () => {
+      const ghOn = await githubEnabled(ctx);
       const [me, stats, github, lead] = await Promise.all([
         ctx.api('/v1/me'),
         ctx.api('/v1/me/stats').catch(() => cached?.stats ?? null),
-        ctx.api('/v1/integrations/github').catch(() => cached?.github ?? null),
+        ghOn ? ctx.api('/v1/integrations/github').catch(() => cached?.github ?? null) : null,
         ctx.api('/v1/me/lead-application').catch(() => cached?.lead ?? null),
       ]);
-      return { me, stats, github, lead };
+      return { me, stats, github, lead, ghOn };
     },
     view: (data) => {
       cached = data;
-      const { me, stats, github, lead } = data;
+      const { me, stats, github, lead, ghOn } = data;
       const role = str(me?.role, 'student');
       const left = h('div', { class: 'sp-profile-main' },
         identityCard(me, () => editProfile(me)),
-        professionalCard(me, github, connectGitHub, () => manageGitHub(github)),
+        professionalCard(me, github, ghOn, connectGitHub, () => manageGitHub(github)),
         role === 'student' || role === 'admin' ? leadCard(lead, leadNotice, startExam) : null,
         h('div', { class: 'sp-signout' }, button('Sign Out', { kind: 'danger', onClick: signOut })));
       const right = h('div', { class: 'sp-profile-side' },
@@ -53,6 +54,8 @@ export default async function render(root, ctx) {
   });
 
   function editProfile(me) {
+    const name = h('input', { id: 'sp-name', class: 'input sp-input', maxlength: '80', autocomplete: 'name', value: str(me?.display_name ?? me?.name) });
+    const gh = h('input', { id: 'sp-gh', class: 'input sp-input sp-mono', maxlength: '40', autocomplete: 'off', spellcheck: 'false', placeholder: 'octocat', value: str(me?.github_username) });
     const bio = h('textarea', { id: 'sp-bio', class: 'textarea sp-input', rows: '4', maxlength: '280', value: str(me?.bio) });
     const skills = h('input', { id: 'sp-skills', class: 'input sp-input', value: list(me?.skills).join(', '), placeholder: 'JavaScript, Python' });
     const count = h('span', { class: 'sp-small sp-muted' });
@@ -64,24 +67,34 @@ export default async function render(root, ctx) {
     const dialog = modal({
       title: 'Edit profile',
       body: h('div', { class: 'sp-form' },
+        h('label', { class: 'sp-field-label', for: 'sp-name' }, 'Name'), name,
         h('label', { class: 'sp-field-label', for: 'sp-bio' }, 'Bio'), bio, count,
         h('label', { class: 'sp-field-label', for: 'sp-skills' }, 'Skills'), skills,
-        h('span', { class: 'sp-small sp-muted' }, 'Separate skills with commas. Up to 20.'), err),
+        h('span', { class: 'sp-small sp-muted' }, 'Separate skills with commas. Up to 20.'),
+        h('label', { class: 'sp-field-label', for: 'sp-gh' }, 'GitHub username'), gh,
+        err),
       actions: [button('Cancel', { kind: 'ghost', onClick: () => dialog.close() }), save],
     });
     save.addEventListener('click', async () => {
       const text = bio.value.trim();
+      const displayName = name.value.trim().replace(/\s+/g, ' ');
+      const ghName = gh.value.trim().replace(/^@/, '');
       const list_ = [...new Set(skills.value.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 20);
       err.hidden = true;
-      if (!text) { err.textContent = 'Write a short bio (1 to 280 characters).'; err.hidden = false; bio.focus(); return; }
-      if (!list_.length) { err.textContent = 'Add at least one skill.'; err.hidden = false; skills.focus(); return; }
+      const fail = (msg, el) => { err.textContent = msg; err.hidden = false; el.focus(); };
+      if (!displayName) { fail('Enter your name.', name); return; }
+      if (!list_.length && list(me?.skills).length) { fail('Add at least one skill.', skills); return; }
+      if (ghName && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(ghName)) { fail('That isn’t a valid GitHub username.', gh); return; }
       save.disabled = true;
       save.textContent = 'Saving…';
       try {
-        const updated = await ctx.api('/v1/me', { method: 'PATCH', body: { bio: text, skills: list_ } });
+        const sent = { display_name: displayName, bio: text, github_username: ghName || null };
+        if (list_.length) sent.skills = list_;
+        const updated = await ctx.api('/v1/me', { method: 'PATCH', body: sent });
         dialog.close();
         toast(ctx, 'Profile saved', 'success');
-        if (alive && board.data) board.data = { ...board.data, me: { ...board.data.me, ...(updated || { bio: text, skills: list_ }) } };
+        const local = { ...sent, name: displayName };
+        if (alive && board.data) board.data = { ...board.data, me: { ...board.data.me, ...(updated && typeof updated === 'object' ? updated : local) } };
         try { await ctx.refreshUser?.(); } catch { /* the page already shows the saved values */ }
       } catch (e) {
         err.textContent = errorText(e);
@@ -147,20 +160,22 @@ function identityCard(me, onEdit) {
   return h('section', { class: 'sp-card sp-identity' },
     h('span', { class: 'sp-avatar', 'aria-hidden': 'true' }, initials || '?'),
     h('div', { class: 'sp-identity-text' },
-      h('h2', { class: 'sp-identity-name' }, str(me?.name, 'Student')),
+      h('h2', { class: 'sp-identity-name' }, str(me?.display_name || me?.name, 'Student')),
       me?.bio ? h('p', { class: 'sp-muted' }, str(me.bio)) : h('p', { class: 'sp-faint' }, 'No bio yet. Tell leads what you like to build.'),
       me?.email ? h('p', { class: 'sp-small sp-mono sp-faint' }, str(me.email)) : null),
     button('Edit profile', { kind: 'secondary', onClick: onEdit }));
 }
 
-function professionalCard(me, github, onConnect, onManage) {
+function professionalCard(me, github, ghOn, onConnect, onManage) {
   const skills = list(me?.skills).join(', ') || 'None yet';
   const classes = list(me?.classes).map((c) => (typeof c === 'string' ? c : str(c?.code ?? c?.name))).filter(Boolean).join(', ') || 'None yet';
   const connected = github?.connected === true;
-  const login = str(github?.login);
-  const ghValue = connected
-    ? h('span', { class: 'sp-inline' }, login ? `Connected · @${login}` : 'Connected', textLink('Manage', { onClick: onManage }))
-    : h('span', { class: 'sp-inline' }, login ? `@${login} · Not connected` : 'Not connected', textLink('Connect', { onClick: onConnect }));
+  const login = str(github?.login) || str(me?.github_username);
+  const ghValue = !ghOn
+    ? h('span', { class: 'sp-gh-off' }, login ? h('span', { class: 'sp-mono' }, `@${login}`) : null, h('span', { class: 'sp-small sp-muted' }, GITHUB_OFF_NOTE))
+    : connected
+      ? h('span', { class: 'sp-inline' }, login ? `Connected · @${login}` : 'Connected', textLink('Manage', { onClick: onManage }))
+      : h('span', { class: 'sp-inline' }, login ? `@${login} · Not connected` : 'Not connected', textLink('Connect', { onClick: onConnect }));
   const row = (label, value) => h('div', { class: 'sp-row sp-row--pro' }, h('span', { class: 'sp-row-label sp-strong' }, label), h('span', { class: 'sp-row-value' }, value));
   return h('section', { class: 'sp-card sp-card--flush' }, cardStrip('PROFESSIONAL'),
     row('Skills', skills), row('Classes', classes), row('GitHub', ghValue), row('Role', ROLE_LABEL[str(me?.role)] || capital(me?.role) || 'Student'));

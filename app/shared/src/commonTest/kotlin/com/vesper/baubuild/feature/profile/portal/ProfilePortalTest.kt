@@ -18,6 +18,17 @@ class ProfilePortalTest {
         )
     }
 
+    @Test fun githubRowHasNoActionsWhileGitHubIsOff() {
+        val saved = professionalRows(FakeData.sam.copy(githubUsername = "samc"), gitHubLogin = "samc", gitHubEnabled = false)
+            .first { it.label == "GitHub" }
+        assertEquals("@samc · GitHub isn’t connected for BAU BUILD yet", saved.value)
+        assertFalse(saved.connectAction)
+        assertFalse(saved.manageAction)
+        val none = professionalRows(FakeData.sam.copy(githubUsername = null), gitHubEnabled = false).first { it.label == "GitHub" }
+        assertEquals("GitHub isn’t connected for BAU BUILD yet", none.value)
+        assertFalse(none.connectAction)
+    }
+
     @Test fun githubRowOffersConnectWhenNotLinked() {
         for (name in listOf(null, "", "  ")) {
             val row = professionalRows(FakeData.sam.copy(githubUsername = name)).first { it.label == "GitHub" }

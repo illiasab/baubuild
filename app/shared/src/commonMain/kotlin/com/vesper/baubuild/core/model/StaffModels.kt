@@ -104,6 +104,13 @@ data class StaffInquiry(
     val latest: String = "",
     val rewardLabel: String = "",
     val reviewedBy: String? = null,
+    /** Not published yet: it can be deleted outright instead of cancelled. */
+    val canDelete: Boolean = false,
+    /** Unspent budget of a cancelled inquiry (USD). */
+    val wastedUsd: Int = 0,
+    /** ISO instants from the backend. */
+    val updatedAt: String? = null,
+    val cancelledAt: String? = null,
 ) {
     val title: String get() = refined?.title ?: draft.title
     /** "BAU Project · Urgent" / "Class Project · CMPS433". */

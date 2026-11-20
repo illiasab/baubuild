@@ -1,6 +1,6 @@
 // Auth screens: Log In, Sign Up, Forgot Password (ask support), Not Allowed.
 // Email + password, BAU domains only (@stu.bau.edu students, @bau.edu staff). No email is sent:
-// registration signs in directly. Verify Email stays only for a legacy server that answers 202.
+// registration signs in directly.
 import { api, DEVICE } from './api.js';
 import { session, accountKind } from './session.js';
 import { navigate } from './router.js';
@@ -9,16 +9,6 @@ import { h, svg, icons, busy } from './ui.js';
 const PASSWORD_RULE = 'At least 8 characters, with a letter and a number.';
 const DOMAIN_RULE = 'Only @stu.bau.edu and @bau.edu emails can sign up.';
 const SUPPORT_EMAIL = 'support@baubuild.vesperconnect.org';
-
-// Remember the latest resend cooldown per email across screens (verify / reset).
-const cooldowns = new Map();
-function setCooldown(email, seconds) {
-  if (seconds) cooldowns.set(email.toLowerCase(), Date.now() + seconds * 1000);
-}
-function cooldownLeft(email) {
-  const until = cooldowns.get(String(email).toLowerCase()) || 0;
-  return Math.max(0, Math.ceil((until - Date.now()) / 1000));
-}
 
 export function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -34,7 +24,7 @@ function waitText(seconds) {
   return `Try again in ${Math.ceil(seconds / 60)} min.`;
 }
 
-// Map an ApiError to a sentence for the given flow ('login' | 'signup' | 'verify' | 'forgot' | 'reset' | 'resend').
+// Map an ApiError to a sentence for the given flow ('login' | 'signup').
 export function authMessage(err, flow) {
   if (!err) return 'Something went wrong. Try again.';
   if (err.code === 'network') return 'Can’t reach BAU BUILD. Check your connection and try again.';
@@ -43,10 +33,6 @@ export function authMessage(err, flow) {
     return {
       signup: 'Sign-up isn’t available yet. Try again soon.',
       login: 'Log in isn’t available yet. Try again soon.',
-      forgot: 'Password reset isn’t available yet. Try again soon.',
-      reset: 'Password reset isn’t available yet. Try again soon.',
-      verify: 'Email verification isn’t available yet. Try again soon.',
-      resend: 'Sending codes isn’t available yet. Try again soon.',
     }[flow] || 'This isn’t available yet. Try again soon.';
   }
   switch (err.code) {
@@ -54,11 +40,9 @@ export function authMessage(err, flow) {
     case 'domain_not_allowed': return DOMAIN_RULE;
     case 'email_taken': return 'An account with this email already exists. Log in instead.';
     case 'weak_password': return `Choose a stronger password. ${PASSWORD_RULE}`;
-    case 'invalid_code': return 'That code isn’t right. Check the email and try again.';
-    case 'code_expired': return 'That code has expired. Send a new one.';
+    case 'account_reserved': return 'This account is reserved. Ask a BAU BUILD admin to activate it.';
     case 'too_many_attempts':
-      return flow === 'login' ? `Too many tries. ${waitText(err.retryAfterS)}` : 'Too many wrong codes. Send a new one.';
-    case 'too_many_requests': return `You asked for codes too often. ${waitText(err.retryAfterS)}`;
+    case 'too_many_requests': return `Too many tries. ${waitText(err.retryAfterS)}`;
     case 'invalid_body': return err.message || 'Check the form and try again.';
     default:
       if (err.status >= 500) return 'The server had a problem. Try again in a moment.';
@@ -173,11 +157,6 @@ export function renderLogin(root, { query = {} } = {}) {
       const tokens = await api('/v1/auth/login', { method: 'POST', auth: false, body: { email: e, password: p, device: DEVICE } });
       signedIn(tokens);
     } catch (error) {
-      if (error.code === 'email_not_verified') {
-        setCooldown(e, error.resendAfterS || 60);
-        navigate(`#/verify?email=${encodeURIComponent(e)}`);
-        return;
-      }
       if (error.code === 'domain_not_allowed') { navigate('#/not-allowed'); return; }
       showError(err, authMessage(error, 'login'));
       if (error.code === 'invalid_credentials') { pw.input.select(); pw.input.focus(); }
@@ -244,9 +223,7 @@ export function renderSignup(root, { query = {} } = {}) {
     try {
       const res = await api('/v1/auth/register', { method: 'POST', auth: false, body: { name: n, email: e, password: p, device: DEVICE } });
       if (res?.access_token) { signedIn(res); return; }
-      // Legacy server: 202 verification_required → code screen.
-      setCooldown(e, res?.resend_after_s || 60);
-      navigate(`#/verify?email=${encodeURIComponent(res?.email || e)}`);
+      showError(err, 'Couldn’t create the account. Try again.');
     } catch (error) {
       if (error.code === 'email_taken') {
         showError(err, authMessage(error, 'signup'), h('a', { class: 'link link-strong', href: `#/login?email=${encodeURIComponent(e)}` }, ' Log In'));
@@ -259,133 +236,6 @@ export function renderSignup(root, { query = {} } = {}) {
   });
   root.replaceChildren(layout('Create your account', 'Students and staff of BAU only.', form));
   return null;
-}
-
-// ---------- 6-digit code boxes ----------
-function codeBoxes(onComplete) {
-  const inputs = Array.from({ length: 6 }, (_, i) => h('input', {
-    class: 'code-box', type: 'text', inputmode: 'numeric', maxlength: '1', pattern: '[0-9]*',
-    autocomplete: i === 0 ? 'one-time-code' : 'off', 'aria-label': `Digit ${i + 1} of 6`,
-  }));
-  const value = () => inputs.map((x) => x.value).join('');
-  const fill = (digits, from = 0) => {
-    const d = digits.replace(/\D/g, '').slice(0, 6 - from).split('');
-    d.forEach((c, k) => { inputs[from + k].value = c; });
-    const next = Math.min(from + d.length, 5);
-    inputs[next].focus();
-    if (value().length === 6) onComplete(value());
-  };
-  inputs.forEach((input, i) => {
-    input.addEventListener('input', () => {
-      const v = input.value.replace(/\D/g, '');
-      if (v.length > 1) { input.value = ''; fill(v, i); return; }
-      input.value = v;
-      if (v && i < 5) inputs[i + 1].focus();
-      if (value().length === 6) onComplete(value());
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' && !input.value && i > 0) { inputs[i - 1].value = ''; inputs[i - 1].focus(); e.preventDefault(); }
-      if (e.key === 'ArrowLeft' && i > 0) { inputs[i - 1].focus(); e.preventDefault(); }
-      if (e.key === 'ArrowRight' && i < 5) { inputs[i + 1].focus(); e.preventDefault(); }
-    });
-    input.addEventListener('focus', () => input.select());
-    input.addEventListener('paste', (e) => {
-      const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
-      if (!/\d/.test(text)) return;
-      e.preventDefault();
-      fill(text, text.replace(/\D/g, '').length >= 6 ? 0 : i);
-    });
-  });
-  const el = h('div', { class: 'code-boxes', role: 'group', 'aria-label': '6-digit code' }, inputs);
-  return {
-    el, value,
-    reset() { inputs.forEach((x) => { x.value = ''; }); inputs[0].focus(); },
-    setInvalid(on) { el.classList.toggle('is-invalid', on); },
-    focus() { inputs[0].focus(); },
-    disable(on) { inputs.forEach((x) => { x.disabled = on; }); },
-  };
-}
-
-// "Resend code" link with a live countdown. Returns {el, start(seconds), stop()}.
-function resendControl(email, purpose, onError, onSent) {
-  let timer = null;
-  const link = h('button', { type: 'button', class: 'btn btn-link' }, 'Resend code');
-  const text = h('span', { class: 'muted' });
-  const el = h('p', { class: 'resend' }, 'Didn’t get it? ', link, text);
-  const tick = () => {
-    const left = cooldownLeft(email);
-    link.disabled = left > 0;
-    text.textContent = left > 0 ? ` in ${left}s` : '';
-    if (!left) { clearInterval(timer); timer = null; }
-    if (!el.isConnected && timer) { clearInterval(timer); timer = null; }
-  };
-  const start = (seconds) => {
-    if (seconds) setCooldown(email, seconds);
-    clearInterval(timer);
-    tick();
-    if (cooldownLeft(email)) timer = setInterval(tick, 1000);
-  };
-  link.addEventListener('click', async () => {
-    await busy(link, async () => {
-      try {
-        const res = await api('/v1/auth/resend-code', { method: 'POST', auth: false, body: { email, purpose } });
-        onSent?.();
-        start(res?.resend_after_s || 60);
-      } catch (error) {
-        if (error.retryAfterS) start(error.retryAfterS);
-        onError(authMessage(error, 'resend'));
-      }
-    });
-    tick();
-  });
-  start(0);
-  return { el, start, stop: () => clearInterval(timer) };
-}
-
-// ---------- Verify Email ----------
-export function renderVerify(root, { query = {} } = {}) {
-  const email = normalizeEmail(query.email);
-  if (!email) { navigate('#/signup', { replace: true }); return null; }
-  const err = formError();
-  const status = h('p', { class: 'form-ok', role: 'status', hidden: true });
-  let submitting = false;
-  const btn = submitButton('Verify');
-  const code = codeBoxes(() => form.requestSubmit());
-  const resend = resendControl(email, 'verify', (m) => showError(err, m), () => {
-    showError(err, '');
-    status.textContent = `We sent a new code to ${email}.`;
-    status.hidden = false;
-    code.reset();
-  });
-  const form = h('form', { class: 'auth-form', novalidate: true }, err, status, code.el, btn, resend.el,
-    h('p', { class: 'auth-switch' }, 'Wrong email? ', h('a', { class: 'link link-strong', href: `#/signup?email=${encodeURIComponent(email)}` }, 'Change it')));
-
-  onSubmit(form, btn, async () => {
-    if (submitting) return;
-    showError(err, '');
-    status.hidden = true;
-    const c = code.value();
-    if (c.length !== 6) { code.setInvalid(true); showError(err, 'Enter the 6-digit code from the email.'); code.focus(); return; }
-    submitting = true;
-    code.disable(true);
-    try {
-      const tokens = await api('/v1/auth/verify-email', { method: 'POST', auth: false, body: { email, code: c, device: DEVICE } });
-      resend.stop();
-      signedIn(tokens);
-    } catch (error) {
-      code.setInvalid(true);
-      showError(err, authMessage(error, 'verify'));
-      code.disable(false);
-      if (['invalid_code', 'code_expired', 'too_many_attempts'].includes(error.code)) code.reset();
-    } finally {
-      submitting = false;
-      code.disable(false);
-    }
-  });
-  code.el.addEventListener('input', () => code.setInvalid(false));
-  root.replaceChildren(layout('Check your email', h('span', {}, 'We sent a 6-digit code to ', h('strong', {}, email), '. It expires in 15 minutes.'), form));
-  requestAnimationFrame(() => code.focus());
-  return () => resend.stop();
 }
 
 // ---------- Forgot Password ----------

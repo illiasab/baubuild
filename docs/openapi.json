@@ -420,6 +420,36 @@
               "type": "integer",
               "description": "index into acceptance_criteria"
             }
+          },
+          "branch": {
+            "type": "string",
+            "nullable": true,
+            "description": "Latest task branch (task/<task_id>-<slug>) recorded by the app or the webhook"
+          },
+          "pr_number": {
+            "type": "integer",
+            "nullable": true
+          },
+          "pr_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "pr_state": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "open",
+              "closed",
+              "merged"
+            ]
+          },
+          "last_commit_sha": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_commit_message": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -690,6 +720,56 @@
             "type": "string"
           }
         }
+      },
+      "GitHubCommit": {
+        "type": "object",
+        "properties": {
+          "sha": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "author_login": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string"
+          },
+          "committed_at": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "GitHubStatus": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "login": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "oauth",
+              "pat"
+            ]
+          },
+          "linked_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "description": "One connection per user, from the web OAuth flow or an app PAT. The token is never returned."
       }
     }
   },
@@ -736,8 +816,8 @@
     "/v1/me/work": {"get": {"tags": ["Workspace"], "summary": "In progress and awaiting approval", "security": [{"bearer": []}], "responses": {"200": {"description": "Work"}}}},
     "/v1/projects/{id}/tasks": {"get": {"tags": ["Workspace"], "summary": "My tasks", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "assignee", "in": "query", "schema": {"type": "string", "enum": ["me"]}}], "responses": {"200": {"description": "My tasks", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/Task"}}}}}}}, "403": {"description": "not_a_member"}}}},
     "/v1/tasks/{id}": {"patch": {"tags": ["Workspace"], "summary": "Change task status and/or ticked acceptance checks", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"description": "invalid_body"}, "404": {"description": "not_found"}}, "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string", "enum": ["todo", "in_progress", "done"]}, "criteria_done": {"type": "array", "items": {"type": "integer"}}}}}}}}},
-    "/v1/projects/{id}/changes": {"get": {"tags": ["Workspace"], "summary": "Branches and GitHub commits", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Changes", "content": {"application/json": {"schema": {"type": "object", "properties": {"connected": {"type": "boolean"}, "repo": {"type": "string", "nullable": true}, "repo_full_name": {"type": "string", "nullable": true}, "branches": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "commits": {"type": "array", "items": {"$ref": "#/components/schemas/ChangeCommit"}}}}}, "github_commits": {"type": "array", "items": {"type": "object", "description": "Always empty for now: fetching commits from GitHub needs the stored token (§4)"}}}}}}}}}},
-    "/v1/integrations/github": {"get": {"tags": ["Workspace"], "summary": "GitHub connection", "security": [{"bearer": []}], "responses": {"200": {"description": "Status"}}}, "delete": {"tags": ["Workspace"], "summary": "Disconnect GitHub", "security": [{"bearer": []}], "responses": {"200": {"description": "Disconnected"}}}},
+    "/v1/projects/{id}/changes": {"get": {"tags": ["Workspace"], "summary": "Branches and GitHub commits", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Changes", "content": {"application/json": {"schema": {"type": "object", "properties": {"connected": {"type": "boolean"}, "repo": {"type": "string", "nullable": true}, "repo_full_name": {"type": "string", "nullable": true}, "branches": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "commits": {"type": "array", "items": {"$ref": "#/components/schemas/ChangeCommit"}}}}}, "github_commits": {"type": "array", "items": {"$ref": "#/components/schemas/GitHubCommit"}, "description": "Last 20 commits per task branch of the caller (recorded via POST /v1/tasks/{id}/branch or the webhook, else listed from GitHub), newest first. Uses the caller's token, else GITHUB_SERVICE_TOKEN. Cached 60s per (repo, branch). Empty on any GitHub problem."}, "github_error": {"type": "string", "nullable": true, "description": "null when fine; else not_configured, github_not_linked, github_unauthorized, github_forbidden, github_not_found, github_unavailable. The request never fails because of GitHub."}}}}}}}}},
+    "/v1/integrations/github": {"get": {"tags": ["Workspace"], "summary": "GitHub connection", "security": [{"bearer": []}], "responses": {"200": {"description": "Status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GitHubStatus"}}}}}}, "delete": {"tags": ["Workspace"], "summary": "Disconnect GitHub (clears the stored token, login and source)", "security": [{"bearer": []}], "responses": {"200": {"description": "Disconnected", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GitHubStatus"}}}}}}},
     "/v1/integrations/github/connect": {"post": {"tags": ["Workspace"], "summary": "Start GitHub OAuth", "security": [{"bearer": []}], "responses": {"200": {"description": "authorize_url"}, "503": {"description": "github_not_configured"}}}},
     "/v1/integrations/github/callback": {"get": {"tags": ["Workspace"], "summary": "GitHub OAuth callback", "security": [], "responses": {"200": {"description": "Connected"}}}},
     "/v1/projects/{id}/mentor/messages": {"get": {"tags": ["Mentor"], "summary": "Mentor history", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}, {"name": "task_id", "in": "query", "schema": {"type": "string"}}, {"name": "cursor", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "items of user and assistant messages with citations"}}}, "post": {"tags": ["Mentor"], "summary": "Ask the mentor", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "text/event-stream with delta, status, citation, done"}, "429": {"description": "quota_exceeded"}}}},
@@ -777,6 +857,9 @@
     "/v1/inquiries/{id}/cancel": {"post": {"tags": ["Inquiries"], "summary": "Cancel: inquiry → cancelled, project → closed, unpaid bounty counts as wasted", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Inquiry", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Inquiry"}}}}, "403": {"description": "role_required"}, "404": {"description": "not_found"}, "409": {"description": "inquiry_locked (already cancelled or delivered)"}}}},
     "/v1/staff/overview": {"get": {"tags": ["Inquiries"], "summary": "Totals over the caller's inquiries (see Inquiry.stage)", "security": [{"bearer": []}], "responses": {"200": {"description": "Overview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StaffOverview"}}}}, "403": {"description": "role_required"}}}},
     "/v1/world-projects": {"get": {"tags": ["Inquiries"], "summary": "Project ideas universities can build", "security": [{"bearer": []}], "responses": {"200": {"description": "Ideas", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/WorldProject"}}}}}}}}}},
-    "/v1/senior-engineers": {"get": {"tags": ["Profile"], "summary": "Senior engineers and interviewers (Ilias, Arian)", "security": [{"bearer": []}], "responses": {"200": {"description": "People", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/SeniorEngineer"}}}}}}}}}}
+    "/v1/senior-engineers": {"get": {"tags": ["Profile"], "summary": "Senior engineers and interviewers (Ilias, Arian)", "security": [{"bearer": []}], "responses": {"200": {"description": "People", "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/SeniorEngineer"}}}}}}}}}},
+    "/v1/integrations/github/token": {"put": {"tags": ["Workspace"], "summary": "Register the app's fine-grained PAT", "description": "Validates with GitHub GET /user, checks membership of GITHUB_ORG (default bau-build; skipped when GITHUB_ORG_CHECK=false), stores the token AES-256-GCM encrypted (GITHUB_TOKEN_KEY; stored as is with a warning when unset), source pat. Replaces any earlier OAuth link. Sets github_username when empty. Idempotent.", "security": [{"bearer": []}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["token"], "properties": {"token": {"type": "string"}, "login": {"type": "string", "description": "Hint only; GitHub's answer wins"}}}}}}, "responses": {"200": {"description": "Linked", "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/GitHubStatus"}, {"type": "object", "properties": {"org_member": {"type": "boolean", "nullable": true, "description": "null when the check is off or GitHub would not tell"}}}]}}}}, "400": {"description": "invalid_body (blank token) or invalid_token (GitHub returned 401)"}, "401": {"description": "unauthorized"}, "403": {"description": "not_org_member"}, "409": {"description": "github_account_in_use"}, "502": {"description": "github_unavailable"}}}},
+    "/v1/integrations/github/webhook": {"post": {"tags": ["Workspace"], "summary": "GitHub org webhook (push, pull_request)", "description": "No bearer auth: X-Hub-Signature-256 is verified with GITHUB_WEBHOOK_SECRET. push on task/<task_id>-… records the branch and last commit and sends task_updated to the task's student. pull_request opened/reopened/synchronize/closed links the PR (number, url, state open|closed|merged); merged marks the task done and notifies. Other branches, repos and events are acknowledged with ignored.", "responses": {"200": {"description": "{ok, task_id} or {ok, ignored}"}, "401": {"description": "invalid_signature"}, "503": {"description": "github_not_configured (secret unset)"}}}},
+    "/v1/tasks/{id}/branch": {"post": {"tags": ["Workspace"], "summary": "Record the branch the app created for a task", "security": [{"bearer": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "example": "task/3f2a-reject-past-dates"}}}}}}, "responses": {"200": {"description": "Task with branch fields", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Task"}}}}, "400": {"description": "invalid_body"}, "403": {"description": "role_required (not your task) or not_a_member"}, "404": {"description": "not_found"}}}}
   }
 }

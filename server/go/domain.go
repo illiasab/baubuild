@@ -415,7 +415,7 @@ func configDoc() map[string]any {
 		"min_supported": min,
 		"features": map[string]any{
 			"billing": false, "mentor": true, "mentor_chat": true, "mentor_reviews": true, "mentor_kickoff": true,
-			"github": os.Getenv("GITHUB_CLIENT_ID") != "", "push": true,
+			"github": githubUsable(), "push": true,
 			"world_projects": true, "senior_engineers": true, "staff_overview": true, "inquiry_cancel": true,
 		},
 		"maintenance": maint,
@@ -1248,18 +1248,44 @@ func mentorReply(text string, project map[string]any, history []map[string]any, 
 }
 
 func mentorScript(text string) string {
-	folded := strings.ToLower(text)
+	folded := strings.ToLower(strings.TrimSpace(text))
+	has := func(words ...string) bool {
+		for _, w := range words {
+			if strings.Contains(folded, w) {
+				return true
+			}
+		}
+		return false
+	}
 	switch {
-	case strings.Contains(folded, "date") || strings.Contains(folded, "string") || strings.Contains(folded, "sort"):
+	case has("how are you", "how r u", "how's it going", "hows it going", "how is it going", "nasılsın", "naber"):
+		return "I'm doing well, thanks for asking! Ready to help with your project. What are you working on right now?"
+	case folded == "hi" || folded == "hello" || folded == "hey" || has("good morning", "good evening", "selam", "merhaba"):
+		return "Hi! I'm Mentor, your BAU BUILD assistant. Ask me about your task, an error you're stuck on, how to test something, or how BAU BUILD works."
+	case has("thank", "thx", "teşekkür", "sağol"):
+		return "You're welcome! Push your branch when you're ready and I'll be here if you get stuck."
+	case has("who are you", "what are you", "what can you do", "help me", "what do you do"):
+		return "I'm Mentor. I explain errors, give hints on your task step by step, suggest tests, and answer questions about BAU BUILD: joining projects, tasks, reviews, your score and becoming a Lead. I won't write the whole solution for you, but I'll get you unstuck."
+	case has("score", "tier", "level up", "status"):
+		return "Your score grows when your work is approved: Rookie, Builder, Skilled, Expert, Honored. Hard projects can ask for a minimum score, but many stay open to everyone."
+	case has("lead", "become a lead", "interview"):
+		return "To become a Lead you pass a proctored exam, then meet a senior engineer in person. Leads review student code and approve what ships."
+	case has("join", "i'm in", "im in", "request"):
+		return "Open a project and tap I'm In. Open projects let you in straight away; some need a professor or dev lead to approve you first."
+	case has("date", "string", "sort"):
 		return "Compare Date objects, or timestamps from those objects. String order only matches calendar order when every part is zero-padded."
-	case strings.Contains(folded, "test"):
+	case has("test"):
 		return "Add one case for yesterday, one for today, and one for a blank field. Assert the message the form shows, not only true or false."
-	case strings.Contains(folded, "screen") || strings.Contains(folded, "reader") || strings.Contains(folded, "aria") || strings.Contains(folded, "announce"):
+	case has("screen", "reader", "aria", "announce"):
 		return `Put the message in the form and give that node role="alert", or aria-live="assertive", so a screen reader speaks it when it appears.`
-	case strings.Contains(folded, "csv") || strings.Contains(folded, "attendance") || strings.Contains(folded, "export"):
+	case has("csv", "attendance", "export"):
 		return "Write one row of headers, then one row per person. Keep the club name in its own column so staff can filter it."
+	case has("error", "exception", "crash", "doesn't work", "not working", "bug"):
+		return "Paste the exact error and the few lines around where it happens. Tell me what you expected and what happened instead, and we'll narrow it down."
+	case strings.HasSuffix(folded, "?"):
+		return "Good question. Tell me a bit more: which file or part of the task is it about, and what have you tried so far?"
 	default:
-		return "Say what you expected and what the code did instead. You write the change, then push the branch."
+		return "Got it. Tell me what you expected and what the code did instead, and I'll give you a hint for the next step."
 	}
 }
 

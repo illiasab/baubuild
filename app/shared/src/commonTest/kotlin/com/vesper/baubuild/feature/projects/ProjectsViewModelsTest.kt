@@ -117,6 +117,22 @@ class ProjectDetailViewModelTest : MainDispatcherTest() {
         assertEquals(FakeData.roomBooking, vm.state.value.project.dataOrNull)
     }
 
+    @Test fun existingMembershipReplacesTheJoinButton() = test {
+        val joined = FakeData.roomBooking.copy(membership = MembershipStatus.In)
+        val pending = FakeData.courseSearch.copy(membership = MembershipStatus.WaitingForApproval)
+        val repo = TestProjectRepository(listOf(joined, pending))
+        val inVm = ProjectDetailViewModel(joined.id, repo, signedIn())
+        val pendingVm = ProjectDetailViewModel(pending.id, repo, signedIn(FakeData.sam.copy(score = 320)))
+        advanceUntilIdle()
+        assertEquals(MembershipStatus.In, inVm.state.value.existingMembership)
+        assertFalse(inVm.state.value.canJoin)
+        assertEquals(JoinState.Idle, inVm.state.value.join) // no "just joined" navigation
+        assertEquals(MembershipStatus.WaitingForApproval, pendingVm.state.value.existingMembership)
+        inVm.join()
+        advanceUntilIdle()
+        assertEquals(0, repo.joinCalls)
+    }
+
     @Test fun joiningOpenProjectShowsProgressThenIn() = test {
         val repo = TestProjectRepository().apply { joinGate = CompletableDeferred() }
         val vm = ProjectDetailViewModel(FakeData.roomBooking.id, repo, signedIn())

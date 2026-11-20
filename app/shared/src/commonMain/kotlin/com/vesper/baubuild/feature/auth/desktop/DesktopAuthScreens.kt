@@ -41,7 +41,6 @@ import com.vesper.baubuild.feature.auth.AuthInlineError
 import com.vesper.baubuild.feature.auth.AuthNotice
 import com.vesper.baubuild.feature.auth.AuthStatus
 import com.vesper.baubuild.feature.auth.BauBuildMark
-import com.vesper.baubuild.feature.auth.CODE_LENGTH
 import com.vesper.baubuild.feature.auth.DomainCheck
 import com.vesper.baubuild.feature.auth.DomainCheckLine
 import com.vesper.baubuild.feature.auth.EmailKeyboard
@@ -52,14 +51,10 @@ import com.vesper.baubuild.feature.auth.NOT_ALLOWED_BODY
 import com.vesper.baubuild.feature.auth.NameKeyboard
 import com.vesper.baubuild.feature.auth.PasswordKeyboard
 import com.vesper.baubuild.feature.auth.PasswordRulesLine
-import com.vesper.baubuild.feature.auth.ResendCodeLine
 import com.vesper.baubuild.feature.auth.SUPPORT_EMAIL
 import com.vesper.baubuild.feature.auth.SUPPORT_MAILTO
 import com.vesper.baubuild.feature.auth.SignUpUiState
 import com.vesper.baubuild.feature.auth.UNKNOWN_ACCOUNT_LABEL
-import com.vesper.baubuild.feature.auth.VerificationCodeField
-import com.vesper.baubuild.feature.auth.VerifyEmailUiState
-import com.vesper.baubuild.feature.auth.normalizeCode
 
 // Desktop variants of the signed-out screens. Same ViewModels as the mobile screens (AuthRoot wires both);
 // only the layout differs. Each renders the form card that DesktopAuthFrame centres. Enter moves to the next
@@ -127,15 +122,6 @@ private fun DesktopLabelledField(
 private fun CenteredLink(action: String, onClick: () -> Unit, lead: String? = null) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
         DesktopTextLink(action, onClick, lead = lead)
-    }
-}
-
-@Composable
-private fun DesktopResendLine(secondsLeft: Long, canResend: Boolean, resending: Boolean, onResend: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-        ResendCodeLine(secondsLeft, canResend, resending, onResend) { text, onClick, enabled ->
-            if (enabled) DesktopTextLink(text, onClick) else Text(text, fontSize = 14.sp, color = BauColors.TextTertiary)
-        }
     }
 }
 
@@ -343,49 +329,6 @@ internal fun DesktopSignUp(
             )
         }
         CenteredLink("Log In", onLogIn, lead = "Already a member?")
-    }
-}
-
-@Composable
-internal fun DesktopVerifyEmail(
-    state: VerifyEmailUiState,
-    onCodeChange: (String) -> Unit,
-    onSubmit: () -> Unit,
-    onResend: () -> Unit,
-    onChangeEmail: () -> Unit,
-) {
-    val codeFocus = remember { FocusRequester() }
-    AutoFocus(codeFocus)
-    DesktopFormCard(
-        title = "Check your BAU inbox",
-        subtitle = "Enter the 6-digit code we emailed you. It’s valid for 15 minutes.",
-        onBack = onChangeEmail,
-    ) {
-        Text(
-            buildAnnotatedString {
-                append("Code sent to ")
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = BauColors.Ink)) { append(state.email) }
-            },
-            fontSize = 14.sp, lineHeight = 20.sp, color = BauColors.TextSecondary,
-        )
-        VerificationCodeField(
-            code = state.code,
-            onCodeChange = onCodeChange,
-            enabled = !state.submitting,
-            isError = state.error != null,
-            focusRequester = codeFocus,
-            onDone = onSubmit,
-            cellHeight = 56.dp,
-            cellShape = RoundedCornerShape(8.dp),
-        )
-        Text("Can’t find it? Check your Junk or Spam folder.", fontSize = 13.sp, color = BauColors.TextTertiary)
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            state.notice?.let { AuthNotice(it) }
-            state.error?.let { AuthInlineError(it) }
-            DesktopPrimaryButton("Verify Email", onClick = onSubmit, enabled = state.canSubmit, loading = state.submitting, loadingDescription = "Checking the code")
-        }
-        DesktopResendLine(state.resendInSeconds, state.canResend, state.resending, onResend)
-        CenteredLink("Change it", onChangeEmail, lead = "Wrong email?")
     }
 }
 

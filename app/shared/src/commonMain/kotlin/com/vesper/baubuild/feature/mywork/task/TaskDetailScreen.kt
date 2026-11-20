@@ -241,7 +241,7 @@ internal fun TaskDetailActions(
 ) {
     val uriHandler = LocalUriHandler.current
     Column(modifier, verticalArrangement = Arrangement.spacedBy(BauSpacing.sm)) {
-        state.updateError?.let { error ->
+        (state.updateError ?: state.criteriaError)?.let { error ->
             Text(
                 error,
                 modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },

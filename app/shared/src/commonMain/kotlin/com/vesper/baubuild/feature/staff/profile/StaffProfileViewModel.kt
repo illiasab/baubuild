@@ -237,7 +237,11 @@ class StaffProfileViewModel(
         local.value = local.value.copy(editingProfile = true, editSession = local.value.editSession + 1)
     }
 
-    fun closeEditProfile() { local.value = local.value.copy(editingProfile = false) }
+    /** Closing Edit Profile re-reads the profile so a new title/department shows right away. */
+    fun closeEditProfile() {
+        local.value = local.value.copy(editingProfile = false)
+        refresh()
+    }
 
     fun signOut() {
         if (local.value.signingOut) return

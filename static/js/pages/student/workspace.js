@@ -2,7 +2,7 @@
 import {
   h, icon, str, list, items, money, difficultyLabel, duePhrase, dueChip, shortDate, daysUntil, pill, chip, button,
   textLink, loader, emptyView, loadingView, sidePanel, clickable, go, toast, errorText, githubUrl, safeUrl,
-  richText, copyText, cardStrip, monoLabel,
+  richText, copyText, cardStrip, monoLabel, capital, repoFullName, membershipOf, githubEnabled, GITHUB_OFF_NOTE,
 } from './_kit.js';
 import { reviewStages, timelineView, aiReviewView, diffLink, statusChip } from './_review.js';
 
@@ -28,7 +28,7 @@ export default async function render(root, ctx) {
     isAlive: () => alive && main.isConnected,
     load: async () => {
       const enc = encodeURIComponent(projectId);
-      const [project, tasks, changes, subs] = await Promise.all([
+      const [project, tasks, changes, subs, ghOn] = await Promise.all([
         ctx.api(`/v1/projects/${enc}`),
         ctx.api(`/v1/projects/${enc}/tasks`).catch((err) => {
           if (err?.code === 'not_a_member') return { notMember: true };
@@ -36,6 +36,7 @@ export default async function render(root, ctx) {
         }),
         ctx.api(`/v1/projects/${enc}/changes`).catch((err) => ({ failed: err })),
         ctx.api('/v1/me/submissions').catch(() => null),
+        githubEnabled(ctx),
       ]);
       return {
         project,
@@ -43,19 +44,20 @@ export default async function render(root, ctx) {
         tasks: items(tasks),
         changes: changes?.failed ? null : changes,
         submissions: subs ? items(subs).filter((s) => str(s?.project_id) === projectId) : null,
+        ghOn,
       };
     },
     view: (data, refresh) => {
       const { project } = data;
       if (crumbHere) crumbHere.textContent = str(project.department, 'Project');
-      const mine = str(project.my_membership?.status);
-      const meta = [str(project.repo?.name).split('/').pop() || null, difficultyLabel(project.difficulty), money(project.bounty), duePhrase(project.due_at)]
+      const mine = membershipOf(project);
+      const meta = [str(project.class_code) || null, (repoFullName(project) || str(project.repo?.name)).split('/').pop() || null, difficultyLabel(project.difficulty), money(project.bounty), duePhrase(project.due_at)]
         .filter(Boolean).join(' · ');
 
       const head = h('header', { class: 'sp-ws-head' },
         h('div', { class: 'sp-ws-titlerow' },
           h('h1', { class: 'sp-title sp-title--ws' }, str(project.title)),
-          mine === 'joined' ? pill('I’m In', 'yellow') : mine === 'pending_approval' ? pill('Waiting', 'lavender') : null),
+          mine === 'member' ? pill('You’re in', 'yellow') : mine === 'pending_approval' ? pill('Request sent', 'lavender') : null),
         h('p', { class: 'sp-mono sp-ws-meta' }, meta));
 
       const tabs = h('div', { class: 'segmented sp-seg sp-tabs', role: 'tablist', 'aria-label': 'Workspace' },
@@ -78,7 +80,7 @@ export default async function render(root, ctx) {
       const latest = data.submissions?.[0] || null;
       const panelContent = tab === 'tasks'
         ? tasksCard(data.tasks, (task) => openTask(task, data))
-        : changesCard(project, data.changes, ctx, data.tasks);
+        : changesCard(project, data.changes, ctx, data.tasks, data.ghOn);
 
       return [head, tabs, panelContent, reviewCard(latest, project, data.submissions)];
     },
@@ -90,27 +92,67 @@ export default async function render(root, ctx) {
     taskPanel = panel;
     let busy = false;
     let error = null;
+    // Ticked acceptance checks: optimistic, saved with PATCH {criteria_done}; a failed save reverts to the last
+    // state the server confirmed. Only the newest request's outcome is applied.
+    let confirmedDone = criteriaDone(task);
+    let tickSeq = 0;
+
+    const syncBoard = () => {
+      const current = board.data;
+      if (current) board.data = { ...current, tasks: current.tasks.map((x) => (str(x.id) === str(task.id) ? task : x)) };
+    };
+
+    const toggleCriterion = async (index) => {
+      const before = criteriaDone(task);
+      const next = before.includes(index) ? before.filter((i) => i !== index) : [...before, index].sort((a, b) => a - b);
+      task = { ...task, criteria_done: next };
+      paint();
+      const mySeq = ++tickSeq;
+      try {
+        const updated = await ctx.api(`/v1/tasks/${encodeURIComponent(task.id)}`, { method: 'PATCH', body: { criteria_done: next } });
+        const saved = updated && typeof updated === 'object' && Array.isArray(updated.criteria_done) ? criteriaDone(updated) : next;
+        confirmedDone = saved;
+        if (mySeq === tickSeq) task = { ...task, ...(updated && typeof updated === 'object' ? updated : {}), criteria_done: saved };
+      } catch (err) {
+        if (mySeq === tickSeq) {
+          task = { ...task, criteria_done: confirmedDone };
+          toast(ctx, err?.code === 'network' ? 'Couldn’t save that check. Check your connection and try again.' : errorText(err), 'error');
+        }
+      }
+      if (!alive) return;
+      syncBoard();
+      paint();
+    };
 
     const paint = () => {
       const t = task;
       const status = taskStatus(t);
-      const days = daysUntil(t.due_at);
+      const dueIso = taskDue(t);
+      const days = daysUntil(dueIso);
       const overdue = days != null && days < 0 && str(t.status) !== 'done';
       const criteria = list(t.acceptance_criteria ?? t.criteria).map((c) => (typeof c === 'string' ? c : str(c?.text ?? c?.criterion))).filter(Boolean);
-      const resources = list(t.resources).map((r) => (typeof r === 'string' ? { title: r, url: r } : { title: str(r?.title ?? r?.label ?? r?.url), url: r?.url })).filter((r) => r.title);
+      const done = new Set(criteriaDone(t));
+      const metCount = criteria.filter((_, i) => done.has(i)).length;
+      const resources = list(t.resources).map((r) => (typeof r === 'string' ? { title: r, url: r } : { title: str(r?.label ?? r?.title ?? r?.url), url: r?.url })).filter((r) => r.title);
       const description = str(t.description);
+      const priority = priorityChip(t.priority);
 
       panel.setBody(
         h('h2', { class: 'sp-panel-title' }, str(t.title)),
-        h('div', { class: 'sp-chips' }, statusPill(status), str(t.lane) === 'backlog' ? chip('Backlog') : chip('Assigned to you')),
+        h('div', { class: 'sp-chips' }, statusPill(status), priority, str(t.lane) === 'backlog' ? chip('Backlog') : chip('Assigned to you')),
         h('section', { class: ['sp-deadline', overdue && 'is-overdue'] },
           monoLabel('DEADLINE'),
-          t.due_at
-            ? h('div', {}, h('span', { class: 'sp-strong' }, shortDate(t.due_at)), h('span', { class: 'sp-muted' }, ` · ${str(t.status) === 'done' ? 'Completed' : deadlineText(days)}`))
+          dueIso
+            ? h('div', {}, h('span', { class: 'sp-strong' }, shortDate(dueIso)), h('span', { class: 'sp-muted' }, ` · ${str(t.status) === 'done' ? 'Completed' : deadlineText(days)}`))
             : h('span', { class: 'sp-muted' }, 'No deadline')),
         description ? h('section', { class: 'sp-panel-section' }, h('h3', { class: 'sp-panel-h' }, 'Description'), h('p', { class: 'sp-prose' }, description)) : null,
-        criteria.length ? h('section', { class: 'sp-panel-section' }, h('h3', { class: 'sp-panel-h' }, 'Acceptance criteria'),
-          h('ul', { class: 'sp-checklist' }, criteria.map((c) => h('li', {}, h('span', { class: 'sp-check', 'aria-hidden': 'true' }), h('span', {}, c))))) : null,
+        criteria.length ? h('section', { class: 'sp-panel-section' },
+          h('h3', { class: 'sp-panel-h' }, 'Acceptance criteria', h('span', { class: 'sp-checklist-count' }, `${metCount} of ${criteria.length}`)),
+          h('ul', { class: 'sp-checklist' }, criteria.map((c, i) => h('li', { class: done.has(i) && 'is-met' },
+            h('label', { class: 'sp-criterion' },
+              h('input', { type: 'checkbox', checked: done.has(i), onchange: () => toggleCriterion(i) }),
+              h('span', { class: 'sp-check', 'aria-hidden': 'true' }, done.has(i) ? icon('check', 14) : null),
+              h('span', { class: 'sp-criterion-text' }, c)))))) : null,
         resources.length ? h('section', { class: 'sp-panel-section' }, h('h3', { class: 'sp-panel-h' }, 'Resources'),
           h('ul', { class: 'sp-resources' }, resources.map((r) => h('li', {}, safeUrl(r.url) ? textLink(r.title, { href: safeUrl(r.url), external: true }) : r.title)))) : null,
         !description && !criteria.length && !resources.length
@@ -133,8 +175,8 @@ export default async function render(root, ctx) {
       try {
         const updated = await ctx.api(`/v1/tasks/${encodeURIComponent(task.id)}`, { method: 'PATCH', body: { status } });
         task = { ...task, ...(updated && typeof updated === 'object' ? updated : { status }) };
-        const current = board.data;
-        if (current) board.data = { ...current, tasks: current.tasks.map((x) => (str(x.id) === str(task.id) ? task : x)) };
+        if (Array.isArray(updated?.criteria_done)) confirmedDone = criteriaDone(updated);
+        syncBoard();
         toast(ctx, status === 'done' ? 'Task marked as done' : 'Task started', 'success');
       } catch (err) {
         error = err?.code === 'network' ? 'Couldn’t update the task. Check your connection and try again.' : errorText(err);
@@ -162,6 +204,23 @@ function taskStatus(task) {
   return str(task.lane) === 'backlog' ? 'backlog' : 'todo';
 }
 
+function criteriaDone(task) {
+  return [...new Set(list(task?.criteria_done).map(Number).filter((n) => Number.isInteger(n) && n >= 0))].sort((a, b) => a - b);
+}
+
+// due_at (timestamp) when present, else due_date (YYYY-MM-DD).
+function taskDue(task) {
+  return task?.due_at || task?.due_date || null;
+}
+
+function priorityChip(value) {
+  const p = str(value).toLowerCase();
+  if (p === 'high') return chip('High priority', 'warn');
+  if (p === 'medium') return chip('Medium priority');
+  if (p === 'low') return chip('Low priority');
+  return null;
+}
+
 function statusPill(status) {
   if (status === 'in_progress') return pill('In Progress', 'blue');
   if (status === 'done') return pill('Done', 'green');
@@ -184,7 +243,13 @@ function tasksCard(tasks, onOpen) {
   const backlog = tasks.filter((t) => str(t.lane) === 'backlog');
   const rowFor = (t) => {
     const status = taskStatus(t);
-    const sub = status === 'done' ? 'Completed' : status === 'backlog' ? 'Backlog' : (dueChip(t.due_at) || 'No deadline');
+    const total = list(t.acceptance_criteria).length;
+    const met = total ? criteriaDone(t).filter((i) => i < total).length : 0;
+    const sub = [
+      status === 'done' ? 'Completed' : status === 'backlog' ? 'Backlog' : (dueChip(taskDue(t)) || 'No deadline'),
+      str(t.priority).toLowerCase() === 'high' && status !== 'done' ? 'High priority' : null,
+      total ? `${met}/${total} checks` : null,
+    ].filter(Boolean).join(' · ');
     const el = h('div', { class: 'sp-task' },
       h('div', { class: 'sp-task-text' }, h('span', { class: 'sp-task-title' }, str(t.title)), h('span', { class: 'sp-task-sub' }, sub)),
       statusPill(status));
@@ -195,8 +260,8 @@ function tasksCard(tasks, onOpen) {
     backlog.length ? h('section', { class: 'sp-card sp-card--flush' }, cardStrip('BACKLOG'), backlog.map(rowFor)) : null);
 }
 
-function changesCard(project, changes, ctx, tasks) {
-  const repoName = str(changes?.repo ?? project.repo?.name);
+function changesCard(project, changes, ctx, tasks, ghOn) {
+  const repoName = repoFullName(changes) || repoFullName(project) || str(changes?.repo ?? project.repo?.name);
   const url = githubUrl(repoName);
   const branches = list(changes?.branches);
   const connected = changes ? changes.connected === true : project.repo?.connected === true;
@@ -219,17 +284,37 @@ function changesCard(project, changes, ctx, tasks) {
         h('code', { class: 'sp-code sp-code--block' }, suggested),
         button('Copy', { kind: 'secondary', onClick: () => copyText(ctx, suggested, 'Branch name copied') }))) : null,
     h('p', { class: 'sp-note' }, 'Code in your own editor, push the branch to GitHub, and it shows up below for review. In-browser editing is coming to the web later.'),
-    !connected ? h('p', { class: 'sp-footnote' }, 'GitHub isn’t connected. ', textLink('Connect it on your profile', { href: '#/profile' }), ' so BAU BUILD can see your pushes.') : null);
+    !ghOn ? h('p', { class: 'sp-footnote' }, GITHUB_OFF_NOTE, ' Your reviews still show up below when you submit a branch.')
+      : !connected ? h('p', { class: 'sp-footnote' }, 'GitHub isn’t connected. ', textLink('Connect it on your profile', { href: '#/profile' }), ' so BAU BUILD can see your pushes.')
+        : changes?.github_error ? h('p', { class: 'sp-footnote' }, 'Couldn’t read your latest commits from GitHub right now. Branches you submitted still show below.') : null);
 
   const list_ = h('section', { class: 'sp-card sp-card--flush' }, cardStrip('MY CHANGES'),
     branches.length
-      ? branches.flatMap((b) => list(b?.commits).map((c) => h('div', { class: 'sp-task' },
-        h('div', { class: 'sp-task-text' },
-          h('span', { class: 'sp-task-title sp-mono' }, icon('branch', 14), ' ', str(b?.name)),
-          h('span', { class: 'sp-task-sub' }, c?.created_at ? shortDate(c.created_at) : '')),
-        h('div', { class: 'sp-inline' }, statusChip({ steps: [{ step: 'lead_decision', status: c?.state }] }), safeUrl(c?.diff_url) ? diffLink(safeUrl(c.diff_url)) : null))))
+      ? branches.flatMap((b) => list(b?.commits).map((c) => {
+        const branch = str(c?.branch ?? b?.name);
+        const message = str(c?.message).trim();
+        const sha = /^[0-9a-f]{7,40}$/i.test(str(c?.sha)) ? str(c.sha) : '';
+        const commitUrl = sha && url ? `${url}/commit/${sha}` : null;
+        const diff = safeUrl(c?.url ?? c?.diff_url);
+        return h('div', { class: 'sp-task' },
+          h('div', { class: 'sp-task-text' },
+            message && message !== branch ? h('span', { class: 'sp-task-title sp-commit-msg' }, message) : null,
+            h('span', { class: [message && message !== branch ? 'sp-task-sub sp-mono' : 'sp-task-title sp-mono', 'sp-commit-branch'] }, icon('branch', 14), branch),
+            h('span', { class: 'sp-task-sub' },
+              sha ? (commitUrl ? h('a', { class: 'sp-commit-sha sp-link', href: commitUrl, target: '_blank', rel: 'noopener noreferrer', title: 'Open the commit on GitHub' }, sha.slice(0, 7)) : h('span', { class: 'sp-commit-sha' }, sha.slice(0, 7))) : null,
+              sha && c?.created_at ? ' · ' : null,
+              c?.created_at ? shortDate(c.created_at) : '')),
+          h('div', { class: 'sp-inline' }, changeChip(c), diff ? diffLink(diff) : null));
+      }))
       : h('div', { class: 'sp-card-pad' }, h('p', { class: 'sp-muted' }, 'Nothing pushed yet. Push a branch and it appears here.')));
   return h('div', { class: 'sp-stack' }, repo, list_);
+}
+
+// Per-commit status: approved | changes_requested | with_dev_lead (older servers: state = lead_status).
+function changeChip(commit) {
+  const s = str(commit?.status);
+  const lead = s === 'approved' ? 'approved' : s === 'changes_requested' ? 'sent_back' : s === 'with_dev_lead' ? 'pending' : str(commit?.state);
+  return statusChip({ steps: [{ step: 'lead_decision', status: lead }] });
 }
 
 function branchName(task) {

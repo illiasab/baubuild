@@ -146,7 +146,45 @@ class HttpProfileRepositoryTest {
     )
 
     @Test
-    fun sendsOnlyBioAndSkillsAndKeepsOtherFieldsLocal() = runTest {
+    fun sendsDisplayNameBioSkillsAndGithub() = runTest {
+        val backend = StudentMockBackend()
+        backend.on("PATCH", "/v1/me", body = Fixtures.ME_V2)
+        val repo = HttpProfileRepository(backend.client, { sam })
+
+        val user = repo.updateProfile(
+            ProfileUpdate(" Sam S. ", "", listOf("Kotlin", " SQL "), githubUsername = "@samdev", removeAvatar = true),
+        )
+
+        val sent = Json.parseToJsonElement(backend.calls.single().body!!).jsonObject
+        assertEquals(setOf("display_name", "bio", "skills", "github_username"), sent.keys)
+        assertEquals("Sam S.", sent["display_name"]!!.jsonPrimitive.content)
+        assertEquals("", sent["bio"]!!.jsonPrimitive.content) // an empty bio clears it
+        assertEquals("samdev", sent["github_username"]!!.jsonPrimitive.content)
+        assertEquals(listOf("Kotlin", "SQL"), sent["skills"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("Sam S.", user.displayName)
+        assertEquals("samdev", user.githubUsername)
+        assertEquals("", user.bio)
+        assertEquals("Computer Engineering", user.department)
+        assertEquals(listOf("student"), user.roles)
+        assertNull(user.avatarUrl)
+        assertEquals(120, user.score) // not in the backend response: kept from the session user
+        assertEquals(listOf("CMPS433"), user.classCodes)
+    }
+
+    @Test
+    fun staffTitleAndDepartmentAreSentOnlyWhenGiven() = runTest {
+        val backend = StudentMockBackend()
+        backend.on("PATCH", "/v1/me", body = Fixtures.ME_V2)
+        val repo = HttpProfileRepository(backend.client, { sam })
+        repo.updateProfile(ProfileUpdate("Sam", "x", emptyList(), "", title = "Professor", department = "CMPE"))
+        val sent = Json.parseToJsonElement(backend.calls.single().body!!).jsonObject
+        assertEquals("Professor", sent["title"]!!.jsonPrimitive.content)
+        assertEquals("CMPE", sent["department"]!!.jsonPrimitive.content)
+        assertTrue("skills" !in sent) // an empty skill list can't be sent
+    }
+
+    @Test
+    fun olderServerWithoutDisplayNameKeepsTypedValues() = runTest {
         val backend = StudentMockBackend()
         backend.on("PATCH", "/v1/me", body = Fixtures.ME)
         val repo = HttpProfileRepository(backend.client, { sam })
@@ -155,9 +193,6 @@ class HttpProfileRepositoryTest {
             ProfileUpdate("Sam S.", "Builds things.", listOf("Kotlin", " SQL "), githubUsername = "samdev", removeAvatar = true),
         )
 
-        val sent = Json.parseToJsonElement(backend.calls.single().body!!).jsonObject
-        assertEquals(setOf("bio", "skills"), sent.keys)
-        assertEquals(listOf("Kotlin", "SQL"), sent["skills"]!!.jsonArray.map { it.jsonPrimitive.content })
         assertEquals("Sam S.", user.displayName)
         assertEquals("samdev", user.githubUsername)
         assertNull(user.avatarUrl)
@@ -166,11 +201,11 @@ class HttpProfileRepositoryTest {
     }
 
     @Test
-    fun blankBioAndEmptySkillsAreNotSent() = runTest {
+    fun blankBioIsSentEmptyAndEmptySkillsAreNotSent() = runTest {
         val backend = StudentMockBackend()
         backend.on("PATCH", "/v1/me", body = Fixtures.ME)
         HttpProfileRepository(backend.client, { sam }).updateProfile(ProfileUpdate("Sam", " ", emptyList(), ""))
-        assertEquals("{}", backend.calls.single().body)
+        assertEquals("""{"display_name":"Sam","bio":"","github_username":""}""", backend.calls.single().body)
     }
 
     @Test

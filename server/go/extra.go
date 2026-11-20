@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"net/http"
@@ -72,26 +73,27 @@ func (a *app) githubCallback(query url.Values) (int, any, error) {
 			return 0, nil, fail(401, "github_rejected", "GitHub did not accept that connection.")
 		}
 		access := asString(token["access_token"])
-		profileReq, _ := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
-		profileReq.Header.Set("Authorization", "Bearer "+access)
-		profileReq.Header.Set("User-Agent", "bau-build")
-		profileRes, err := http.DefaultClient.Do(profileReq)
-		if err != nil {
+		profileRes, err := githubCall(http.MethodGet, "/user", access)
+		if err != nil || profileRes.status != http.StatusOK {
 			return 0, nil, fail(401, "github_rejected", "GitHub did not accept that connection.")
 		}
-		defer profileRes.Body.Close()
-		raw, _ = io.ReadAll(profileRes.Body)
 		var profile map[string]any
-		if json.Unmarshal(raw, &profile) != nil {
+		if json.Unmarshal(profileRes.body, &profile) != nil || asString(profile["login"]) == "" {
 			return 0, nil, fail(401, "github_rejected", "GitHub did not accept that connection.")
 		}
 		if _, err := tx.Exec(`DELETE FROM oauth_states WHERE state = ?`, state); err != nil {
 			return 0, nil, err
 		}
-		if _, err := tx.Exec(`UPDATE users SET github_login = ?, github_token = ? WHERE id = ?`, profile["login"], access, str(row, "user_id")); err != nil {
+		githubID := ""
+		if id, ok := profile["id"].(float64); ok {
+			githubID = fmt.Sprintf("%.0f", id)
+		}
+		// One connection per user: an OAuth link replaces an earlier PAT (and vice versa).
+		linkedAt, err := storeGitHubLink(tx, str(row, "user_id"), access, asString(profile["login"]), githubID, "oauth")
+		if err != nil {
 			return 0, nil, err
 		}
-		return 200, map[string]any{"connected": true, "login": profile["login"]}, nil
+		return 200, map[string]any{"connected": true, "login": profile["login"], "source": "oauth", "linked_at": linkedAt}, nil
 	})
 }
 
@@ -193,6 +195,9 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 		return status, payload, true, err
 	}
 	if status, payload, ok, err := gapRoutes(tx, r, path, user, body); ok {
+		return status, payload, true, err
+	}
+	if status, payload, ok, err := githubTxRoutes(tx, r, path, user, body); ok {
 		return status, payload, true, err
 	}
 	switch {
@@ -360,32 +365,8 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 		_, err := tx.Exec(`DELETE FROM bookmarks WHERE user_id = ? AND project_id = ?`, str(user, "id"), projectID)
 		return 204, nil, true, err
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/changes"):
-		projectID := id("/v1/projects/", "/changes")
-		project, err := requireProject(tx, projectID)
-		if err != nil {
-			return 0, nil, true, err
-		}
-		if err := requireMember(tx, user, projectID); err != nil {
-			return 0, nil, true, err
-		}
-		rows, err := many(tx, `SELECT * FROM submissions WHERE project_id = ? AND user_id = ? ORDER BY created_at DESC`, projectID, str(user, "id"))
-		if err != nil {
-			return 0, nil, true, err
-		}
-		grouped := []any{}
-		seen := map[string][]any{}
-		order := []string{}
-		for _, row := range rows {
-			name := str(row, "branch")
-			if _, ok := seen[name]; !ok {
-				order = append(order, name)
-			}
-			seen[name] = append(seen[name], changeCommit(project, row))
-		}
-		for _, name := range order {
-			grouped = append(grouped, map[string]any{"name": name, "commits": seen[name]})
-		}
-		return 200, map[string]any{"connected": user["github_token"] != nil && str(user, "github_token") != "", "repo": project["repo_name"], "repo_full_name": repoFullName(project), "branches": grouped, "github_commits": []any{}}, true, nil
+		out, _, err := projectChanges(tx, user, id("/v1/projects/", "/changes"))
+		return 200, out, true, err
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/mentor/messages"):
 		projectID := id("/v1/projects/", "/mentor/messages")
 		if err := requireMember(tx, user, projectID); err != nil {
@@ -418,8 +399,6 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 			})
 		}
 		return 200, map[string]any{"items": items, "next_cursor": nil}, true, nil
-	case r.Method == http.MethodGet && path == "/v1/integrations/github":
-		return 200, map[string]any{"connected": user["github_token"] != nil && str(user, "github_token") != "", "login": user["github_login"]}, true, nil
 	case r.Method == http.MethodPost && path == "/v1/integrations/github/connect":
 		clientID := strings.TrimSpace(os.Getenv("GITHUB_CLIENT_ID"))
 		if clientID == "" {
@@ -431,9 +410,6 @@ func extra(tx *sql.Tx, r *http.Request, path string, user, session map[string]an
 		}
 		q := url.Values{"client_id": {clientID}, "redirect_uri": {githubRedirect()}, "scope": {"read:user repo"}, "state": {state}}
 		return 200, map[string]any{"authorize_url": "https://github.com/login/oauth/authorize?" + q.Encode()}, true, nil
-	case r.Method == http.MethodDelete && path == "/v1/integrations/github":
-		_, err := tx.Exec(`UPDATE users SET github_login = NULL, github_token = NULL WHERE id = ?`, str(user, "id"))
-		return 200, map[string]any{"connected": false, "login": nil}, true, err
 	case r.Method == http.MethodGet && path == "/v1/inquiries/mine":
 		if err := staffOnly(user); err != nil {
 			return 0, nil, true, err

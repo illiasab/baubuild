@@ -1,6 +1,7 @@
 // Inquiry detail (#/inquiries/:id): header, today card + daily log (when the backend sends progress) or the
-// status summary, and the editable Details form (PATCH /v1/inquiries/{id}; only while `submitted`, else 409
-// inquiry_locked) with Withdraw (DELETE /v1/inquiries/{id}, also only while `submitted`).
+// status summary, and the editable Details form (PATCH /v1/inquiries/{id}; allowed until it is cancelled, then 409
+// inquiry_locked). Before it is published it can be withdrawn (DELETE); once published it can be cancelled
+// (POST /v1/inquiries/{id}/cancel), which closes the project and counts unpaid budget as wasted.
 import {
   el, clear, icon, go, toast, showLoading, showError, confirmAction, formatShortDate, todayIso, toStaffInquiry,
   statusChip, urgentChip, isUrgent, detailMeta, summaryOf, PROJECT_TYPES, DIFFICULTIES, MAX_BOUNTY, patchBody,
@@ -66,7 +67,7 @@ export default async function render(root, ctx) {
       el('h3', { class: 'st-h3' }, s.title),
       s.body ? el('p', { class: 'st-muted' }, s.body) : null,
       deadline ? el('span', { class: 'st-mono' }, deadline) : null,
-      inq.rawStatus === 'submitted' ? el('p', { class: 'st-small st-muted' }, 'You can edit or withdraw it until a reviewer approves it.') : null);
+      inq.rawStatus === 'submitted' ? el('p', { class: 'st-small st-muted' }, 'You can edit or withdraw it until it is published.') : null);
   }
 
   function briefCard(inq) {
@@ -140,7 +141,11 @@ export default async function render(root, ctx) {
 
   // ---- right column: Details ----
   function detailsForm(inq) {
-    const editable = inq.rawStatus === 'submitted';
+    const cancelled = inq.status === 'Cancelled' || inq.rawStatus === 'cancelled';
+    const editable = !cancelled;
+    const published = inq.rawStatus === 'published';
+    const canWithdraw = inq.rawStatus === 'submitted';
+    const canCancel = !cancelled && !canWithdraw && inq.status !== 'Done';
     const d = { ...inq.draft, types: [...inq.draft.types], rewards: [...inq.draft.rewards] };
     let priceText = d.priceUsd ? String(d.priceUsd) : '';
     const status = el('div', { class: 'st-inline-note', role: 'status', hidden: true });
@@ -166,11 +171,14 @@ export default async function render(root, ctx) {
     const controls = [title, explain, expect, deadline, price, classCode].filter(Boolean);
     const saveBtn = el('button', { type: 'button', class: 'st-btn st-btn--yellow', onclick: save }, 'Save changes');
     const cancelBtn = el('button', { type: 'button', class: 'st-btn st-btn--outline', onclick: () => draw(inq) }, 'Cancel');
-    const withdrawBtn = el('button', { type: 'button', class: 'st-btn st-btn--danger-text', onclick: withdraw }, 'Withdraw inquiry');
+    const withdrawBtn = canWithdraw
+      ? el('button', { type: 'button', class: 'st-btn st-btn--danger-text', onclick: withdraw }, 'Withdraw inquiry')
+      : canCancel ? el('button', { type: 'button', class: 'st-btn st-btn--danger-text', onclick: cancelInquiry }, 'Cancel inquiry') : null;
 
     const card = el('section', { class: 'st-card st-form-card', 'aria-labelledby': 'st-details' },
       el('div', { class: 'st-card-titles' }, el('h2', { class: 'st-h2', id: 'st-details' }, 'Details'),
-        el('p', { class: 'st-muted' }, editable ? 'Edit and save. Reviewers see changes right away.' : 'Locked: only an inquiry waiting for review can be edited.')),
+        el('p', { class: 'st-muted' }, !editable ? 'Locked: a cancelled inquiry can’t be edited.'
+          : published ? 'Edit and save. Students on the board see the changes right away.' : 'Edit and save. Reviewers see changes right away.')),
       status,
       title.wrap, explain.wrap, expect.wrap, types.wrap, priority.wrap, difficulty.wrap,
       el('div', { class: 'st-row-fields' }, deadline.wrap, price.wrap),
@@ -178,7 +186,8 @@ export default async function render(root, ctx) {
       editable ? el('div', { class: 'st-form-actions' }, withdrawBtn, el('span', { class: 'st-spacer' }), cancelBtn, saveBtn) : null);
 
     if (!editable) {
-      setNote(inq.rawStatus === 'approved' ? 'Approved by a reviewer: the details are locked while it goes live.' : 'This inquiry is live, so its details are locked.', 'info');
+      const when = inq.cancelledAt ? ` on ${formatShortDate(inq.cancelledAt)}` : '';
+      setNote(`Cancelled${when}.${inq.wastedUsd ? ` ${formatUsd(inq.wastedUsd)} of budget was wasted.` : ''} The details are locked.`, 'info');
       lock();
     }
 
@@ -216,12 +225,37 @@ export default async function render(root, ctx) {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save changes';
         if (err?.code === 'inquiry_locked') {
-          setNote('A reviewer already approved this inquiry, so it can’t be edited any more.', 'warn');
+          setNote(err?.message || 'This inquiry was cancelled, so it can’t be edited any more.', 'warn');
           lock();
           card.querySelector('.st-form-actions')?.remove();
         } else {
           setNote(err?.message || 'Couldn’t save. Try again.', 'error');
         }
+      }
+    }
+
+    async function cancelInquiry() {
+      const budget = inq.draft.priceUsd || 0;
+      const students = inq.status === 'InProgress' ? ' Students on the project are told it was cancelled.' : '';
+      const ok = await confirmAction(ctx, {
+        title: 'Cancel this inquiry?',
+        body: `“${inq.draft.title}” comes off the Projects board and its project closes.${students} ${budget
+          ? `Up to ${formatUsd(budget)} of budget that wasn’t paid out counts as wasted budget.` : 'It has no cash reward, so no budget is wasted.'} This can’t be undone.`,
+        confirmLabel: 'Cancel inquiry',
+        danger: true,
+      });
+      if (!ok || !alive) return;
+      withdrawBtn.disabled = true;
+      try {
+        const updated = toStaffInquiry(await ctx.api(`/v1/inquiries/${encodeURIComponent(inq.id)}/cancel`, { method: 'POST' }));
+        if (!alive) return;
+        toast(ctx, updated.wastedUsd ? `Inquiry cancelled. ${formatUsd(updated.wastedUsd)} counted as wasted.` : 'Inquiry cancelled.', 'success');
+        draw(updated);
+      } catch (err) {
+        if (!alive) return;
+        withdrawBtn.disabled = false;
+        if (err?.status === 404 && err?.code !== 'not_found') setNote('Cancelling isn’t available on this server yet.', 'error');
+        else setNote(err?.message || 'Couldn’t cancel it. Try again.', 'error');
       }
     }
 
@@ -243,9 +277,7 @@ export default async function render(root, ctx) {
         if (!alive) return;
         withdrawBtn.disabled = false;
         if (err?.code === 'inquiry_locked') {
-          setNote('A reviewer already approved this inquiry, so it can’t be withdrawn here.', 'warn');
-          lock();
-          card.querySelector('.st-form-actions')?.remove();
+          setNote('It’s already published, so it can’t be withdrawn. Reload to cancel it instead.', 'warn');
         } else {
           setNote(err?.message || 'Couldn’t withdraw it. Try again.', 'error');
         }

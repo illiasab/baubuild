@@ -1,7 +1,7 @@
 // Projects board: filters, urgent hero, project cards. Cards open #/projects/:id (detail panel over this page).
 import {
   h, str, num, list, items, money, capital, dueChip, difficultyLabel, minScoreLabel, joiningLabel,
-  chip, button, pageHead, loader, emptyView, clickable, go, toast,
+  chip, pill, button, pageHead, loader, emptyView, clickable, go, toast, membershipOf, summaryOf,
 } from './_kit.js';
 
 const DIFFICULTIES = [null, 'easy', 'medium', 'hard'];
@@ -27,7 +27,7 @@ async function loadBoard(ctx, difficulty, previous) {
     ctx.api('/v1/me/classes').catch(() => previous?.classes ?? null),
   ]);
   return {
-    projects: items(page).filter((p) => p && p.id != null && !p.my_membership),
+    projects: items(page).filter((p) => p && p.id != null && membershipOf(p) !== 'member'),
     nextCursor: page?.next_cursor ?? null,
     urgent: urgent?.failed ? previous?.urgent ?? [] : items(urgent),
     urgentFailed: !!urgent?.failed,
@@ -114,7 +114,7 @@ export default async function render(root, ctx) {
             if (filters.difficulty) q.set('difficulty', filters.difficulty);
             const page = await ctx.api(`/v1/projects?${q}`);
             const seen = new Set(data.projects.map((p) => str(p.id)));
-            const extra = items(page).filter((p) => p && !p.my_membership && !seen.has(str(p.id)));
+            const extra = items(page).filter((p) => p && membershipOf(p) !== 'member' && !seen.has(str(p.id)));
             loadingMore = false;
             if (alive) board.data = { ...data, projects: [...data.projects, ...extra], nextCursor: page?.next_cursor ?? null };
           } catch (err) {
@@ -152,27 +152,33 @@ function hero(project, onOpen) {
     h('div', { class: 'sp-hero-text' },
       h('span', { class: 'sp-mono-label sp-hero-tags' }, tags),
       h('h2', { class: 'sp-hero-title' }, str(project.title)),
-      project.description ? h('p', { class: 'sp-hero-body' }, str(project.description)) : null,
-      button(`View project · ${money(project.bounty)}`, { kind: 'primary', onClick: onOpen })),
+      summaryOf(project) ? h('p', { class: 'sp-hero-body' }, summaryOf(project)) : null,
+      button(membershipOf(project) === 'pending_approval' ? `Request sent · ${money(project.bounty)}` : `View project · ${money(project.bounty)}`, { kind: 'primary', onClick: onOpen })),
     cubes());
 }
 
 export function projectCard(project, score, onOpen) {
-  const owner = str(project.department || project.class_code || project.class_id).toUpperCase();
-  const blocked = project.eligibility?.eligible === false || (score != null && num(project.min_score) > score);
+  const owner = [...new Set([str(project.class_code), str(project.department || project.class_id)].filter(Boolean).map((s) => s.toUpperCase()))].join(' · ');
+  const membership = membershipOf(project);
+  const blocked = membership === 'none' && (project.eligibility?.eligible === false || (score != null && num(project.min_score) > score));
   const everyone = str(project.joining) === 'everyone';
   const chips = [difficultyLabel(project.difficulty), minScoreLabel(project), dueChip(project.due_at)].filter(Boolean);
-  const action = button(everyone ? 'I’m In' : 'Request', {
-    kind: everyone ? 'primary' : 'secondary',
-    onClick: (e) => { e.stopPropagation(); onOpen(); },
-    title: blocked ? 'See why you can’t join yet' : undefined,
-  });
+  const action = membership === 'member'
+    ? pill('You’re in', 'yellow')
+    : membership === 'pending_approval'
+      ? pill('Request sent', 'lavender')
+      : button(everyone ? 'I’m In' : 'Request', {
+        kind: everyone ? 'primary' : 'secondary',
+        onClick: (e) => { e.stopPropagation(); onOpen(); },
+        title: blocked ? 'See why you can’t join yet' : undefined,
+      });
+  const blurb = summaryOf(project);
   const el = h('article', { class: ['sp-pcard', blocked && 'is-blocked'] },
     h('div', { class: 'sp-pcard-top' },
       h('span', { class: 'sp-mono-label' }, owner),
       h('span', { class: 'sp-pcard-bounty' }, money(project.bounty))),
     h('h3', { class: 'sp-pcard-title' }, str(project.title)),
-    project.description ? h('p', { class: 'sp-pcard-desc' }, str(project.description)) : null,
+    blurb ? h('p', { class: 'sp-pcard-desc' }, blurb) : null,
     h('div', { class: 'sp-chips' }, chips.map((c, i) => chip(c, i === 1 && blocked ? 'warn' : '')), project.urgent ? chip('Urgent', 'urgent') : null),
     h('div', { class: 'sp-pcard-foot' }, h('span', { class: 'sp-muted' }, joiningLabel(project)), action));
   return clickable(el, onOpen, `Open ${str(project.title)}`);

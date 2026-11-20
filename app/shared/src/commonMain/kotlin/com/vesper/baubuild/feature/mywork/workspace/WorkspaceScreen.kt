@@ -1,5 +1,6 @@
 package com.vesper.baubuild.feature.mywork.workspace
 
+import androidx.compose.ui.platform.LocalUriHandler
 import com.vesper.baubuild.designsystem.tabBarContentPadding
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -139,14 +140,16 @@ private fun ChangesSection(changes: List<CodeChange>) {
         EmptyMessage("Nothing pushed yet", "Push a branch to the project repo and it appears here.")
         return
     }
+    val uriHandler = LocalUriHandler.current
     GroupedSection("Code You Pushed") {
         changes.forEachIndexed { i, change ->
-            // TODO(backend): CodeChange has no diff URL yet; the design links each row to its diff.
+            val url = change.url
             GroupedRow(
                 title = change.title,
-                subtitle = change.branch,
+                subtitle = listOfNotNull(change.branch, change.sha?.take(7)?.takeIf { it != change.branch }).joinToString(" · "),
                 subtitleFontFamily = MonoFamily,
                 showDivider = i < changes.lastIndex,
+                onClick = url?.let { { runCatching { uriHandler.openUri(it) } } },
             ) { ChangeStatusChip(change.status) }
         }
     }

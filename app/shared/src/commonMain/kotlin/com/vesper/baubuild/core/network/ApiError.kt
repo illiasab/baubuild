@@ -13,23 +13,20 @@ import kotlinx.serialization.json.Json
  * (server/go). [code] is stable and machine-readable (e.g. `domain_not_allowed`, `invalid_credentials`,
  * `refresh_reused`); [message] is human-readable.
  *
- * Rate-limit / cooldown hints, when the server sends them: [retryAfterSeconds] from `retry_after_s` (inside `error` or
- * at the top level) or the `Retry-After` header; [resendAfterSeconds] from `resend_after_s` (e.g. `email_not_verified`,
- * where the server has just re-sent a code).
+ * Rate-limit hint, when the server sends one: [retryAfterSeconds] from `retry_after_s` (inside `error` or at the top
+ * level) or the `Retry-After` header.
  */
 class ApiException(
     val status: Int,
     val code: String,
     override val message: String,
     val retryAfterSeconds: Long? = null,
-    val resendAfterSeconds: Long? = null,
 ) : Exception(message)
 
 @Serializable
 private data class ErrorEnvelope(
     val error: ErrorBody? = null,
     @SerialName("retry_after_s") val retryAfterSeconds: Long? = null,
-    @SerialName("resend_after_s") val resendAfterSeconds: Long? = null,
 )
 
 @Serializable
@@ -37,7 +34,6 @@ private data class ErrorBody(
     val code: String = "unknown",
     val message: String = "",
     @SerialName("retry_after_s") val retryAfterSeconds: Long? = null,
-    @SerialName("resend_after_s") val resendAfterSeconds: Long? = null,
 )
 
 private val errorJson = Json { ignoreUnknownKeys = true; coerceInputValues = true }
@@ -61,6 +57,5 @@ suspend fun <T> apiCall(block: suspend () -> T): T = try {
         code = body?.code ?: "http_$status",
         message = body?.message?.ifBlank { null } ?: "Request failed ($status).",
         retryAfterSeconds = (body?.retryAfterSeconds ?: envelope?.retryAfterSeconds ?: retryHeader)?.takeIf { it >= 0 },
-        resendAfterSeconds = (body?.resendAfterSeconds ?: envelope?.resendAfterSeconds)?.takeIf { it >= 0 },
     )
 }

@@ -3,7 +3,7 @@ import { api, sse, ApiError } from './api.js';
 import { session, isStaff, isStudent } from './session.js';
 import { route, fallback, navigate, start, currentRoute } from './router.js';
 import * as ui from './ui.js';
-import { renderLogin, renderSignup, renderVerify, renderForgot, renderNotAllowed } from './auth.js';
+import { renderLogin, renderSignup, renderForgot, renderNotAllowed } from './auth.js';
 
 const { h, svg, icons, toast } = ui;
 const app = document.getElementById('app');
@@ -24,7 +24,7 @@ const STAFF_NAV = [
 const homeFor = (user) => (isStaff(user) ? '#/overview' : '#/projects');
 
 // ---------- Routes ----------
-const AUTH = { login: renderLogin, signup: renderSignup, verify: renderVerify, forgot: renderForgot, 'not-allowed': renderNotAllowed };
+const AUTH = { login: renderLogin, signup: renderSignup, forgot: renderForgot, 'not-allowed': renderNotAllowed };
 for (const [name, render] of Object.entries(AUTH)) {
   route(`#/${name}`, (r) => showAuth(render, r, name));
 }
@@ -66,7 +66,7 @@ function showAuth(render, r, name) {
   if (session.signedIn && name !== 'not-allowed') { navigate(homeFor(session.user), { replace: true }); return; }
   teardownShell();
   try { authCleanup?.(); } catch { /* ignore */ }
-  document.title = { login: 'Log In', signup: 'Sign Up', verify: 'Verify Email', forgot: 'Reset Password', 'not-allowed': 'Not Allowed' }[name] + ' · BAU BUILD';
+  document.title = { login: 'Log In', signup: 'Sign Up', forgot: 'Reset Password', 'not-allowed': 'Not Allowed' }[name] + ' · BAU BUILD';
   authCleanup = render(app, r) || null;
   window.scrollTo(0, 0);
 }

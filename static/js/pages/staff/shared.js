@@ -392,7 +392,7 @@ function latestFor(raw) {
   const st = statusOf(s);
   if (st === 'InProgress') return 'Students are building it';
   if (st === 'Done') return 'Delivered';
-  if (st === 'Cancelled') return 'Withdrawn';
+  if (st === 'Cancelled') return 'Cancelled';
   if (st === 'Draft') return 'Draft';
   return capitalize(s.replace(/_/g, ' '));
 }
@@ -432,6 +432,17 @@ function parseProgress(dto) {
   };
 }
 
+/** Server `stage` (draft | open | in_progress | delivered | cancelled) → app status; null when absent/unknown. */
+export function statusOfStage(stage) {
+  switch (String(stage || '').toLowerCase()) {
+    case 'draft': case 'open': return 'Posted';
+    case 'in_progress': return 'InProgress';
+    case 'delivered': return 'Done';
+    case 'cancelled': case 'canceled': return 'Cancelled';
+    default: return null;
+  }
+}
+
 export function toStaffInquiry(dto) {
   const parsed = parseDescription(dto.description);
   const bounty = int(dto.bounty, 0);
@@ -458,15 +469,24 @@ export function toStaffInquiry(dto) {
   const effective = difficulty || 'Medium';
   const minScore = int(dto.min_score, 0);
   const progress = parseProgress(dto);
-  const status = statusOf(dto.status);
+  const stage = String(dto.stage || '').toLowerCase() || null;
+  const rawStatus = String(dto.status || 'submitted').toLowerCase();
+  const status = rawStatus === 'cancelled' ? 'Cancelled' : statusOfStage(stage) || statusOf(dto.status);
   let latest = latestFor(dto.status);
+  if (status === 'InProgress' && rawStatus === 'published') latest = 'Students are building it';
+  if (status === 'Done' && rawStatus === 'published') latest = 'Delivered';
+  if (status === 'Cancelled') latest = 'Cancelled';
   if (progress && status === 'InProgress' && progress.totalDays) {
     latest = `Day ${progress.dayOf} of ${progress.totalDays}` + (progress.blocker && !progress.blocker.resolved ? ' · 1 blocker' : '');
   }
   return {
     id: String(dto.id),
-    rawStatus: String(dto.status || 'submitted'),
+    rawStatus,
+    stage,
     status,
+    wastedUsd: dto.wasted_usd == null ? null : Math.max(0, int(dto.wasted_usd, 0)),
+    cancelledAt: dto.cancelled_at || null,
+    updatedAt: dto.updated_at || null,
     draft,
     refined: {
       title: draft.title, brief: parsed.body, doneLooksLike: parsed.done, types: parsed.types, difficulty: effective,
@@ -513,7 +533,11 @@ export function summaryOf(inq) {
       return { title: inq.latest || 'Posted', body: 'Students can find it in Projects and ask to join. Daily updates start once a team is approved.' };
     case 'InProgress': return { title: inq.latest || 'In progress', body: 'Students are building it. Daily updates and blockers show up here.' };
     case 'Done': return { title: 'Delivered', body: `The team delivered it and the work was reviewed${inq.reviewedBy ? ` by the ${inq.reviewedBy}` : ''}.` };
-    case 'Cancelled': return { title: inq.latest || 'Cancelled', body: 'This inquiry was cancelled. Unspent budget from cancelled inquiries counts as wasted.', warning: true };
+    case 'Cancelled': {
+      const when = inq.cancelledAt ? ` on ${formatShortDate(inq.cancelledAt)}` : '';
+      const wasted = inq.wastedUsd != null ? `${formatUsd(inq.wastedUsd)} of unspent budget counts as wasted.` : 'Unspent budget from cancelled inquiries counts as wasted.';
+      return { title: 'Cancelled', body: `You cancelled this inquiry${when}. ${wasted}`, warning: true };
+    }
     default: return { title: inq.latest || STATUS_LABEL[inq.status] || 'Posted', body: '' };
   }
 }
@@ -634,16 +658,44 @@ export async function fetchAll(ctx) {
   return [...loadDrafts(ctx).map(draftAsInquiry), ...remote];
 }
 
-/** Overview numbers computed from the list (no GET /v1/staff/overview yet). */
+/** Overview numbers computed from the list (fallback for servers without GET /v1/staff/overview). */
 export function computeOverview(list) {
-  const sum = (status) => list.filter((i) => i.status === status).reduce((acc, i) => acc + (i.draft.priceUsd || 0), 0);
+  const remote = list.filter((i) => !i.local);
+  const raised = remote.filter((i) => i.status === 'Done').reduce((acc, i) => acc + (i.draft.priceUsd || 0), 0);
+  const wasted = remote.filter((i) => i.status === 'Cancelled').reduce((acc, i) => acc + (i.wastedUsd ?? i.draft.priceUsd ?? 0), 0);
   return {
-    raisedUsd: sum('Done'),
-    wastedUsd: sum('Cancelled'),
+    raisedUsd: raised,
+    wastedUsd: wasted,
     openCount: list.filter((i) => isOpenStatus(i.status)).length,
+    inProgressCount: list.filter((i) => i.status === 'InProgress').length,
     deliveredCount: list.filter((i) => i.status === 'Done').length,
     needsAttention: list.find(hasOpenBlocker) || null,
   };
+}
+
+/**
+ * GET /v1/staff/overview → the same shape as computeOverview. Local drafts aren't on the server, so they're added
+ * to the open count. Falls back to computing from `list` on 404 (older server) or any other error.
+ */
+export async function fetchOverview(ctx, list) {
+  const computed = computeOverview(list);
+  try {
+    const o = await ctx.api('/v1/staff/overview');
+    if (!o || typeof o !== 'object' || o.raised_usd == null) return computed;
+    const drafts = list.filter((i) => i.local).length;
+    const open = int(o.open, 0);
+    const progress = int(o.in_progress, 0);
+    return {
+      raisedUsd: int(o.raised_usd, 0),
+      wastedUsd: int(o.wasted_usd, 0),
+      openCount: open + progress + drafts,
+      inProgressCount: progress,
+      deliveredCount: int(o.delivered, 0),
+      needsAttention: computed.needsAttention,
+    };
+  } catch {
+    return computed;
+  }
 }
 
 export function inquiryHref(inq) {
@@ -670,7 +722,7 @@ export function isProfessor(user) {
 /** "Hello, Dr. Hale" for professors, "Hello, Nora" otherwise. */
 export function staffGreeting(user) {
   if (!user) return null;
-  const words = String(user.name || '').split(' ').map((w) => w.trim()).filter(Boolean)
+  const words = String(user.display_name || user.name || '').split(' ').map((w) => w.trim()).filter(Boolean)
     .filter((w) => !HONORIFICS.has(w.toLowerCase().replace(/\.+$/, '')));
   const fromEmail = String(user.email || '').split('@')[0].split(/[._-]/).filter(Boolean).map(capitalize);
   const first = words[0] || fromEmail[0];
@@ -681,7 +733,7 @@ export function staffGreeting(user) {
 
 /** "Dr. Nora Hale" for professors. */
 export function displayName(user) {
-  const name = String(user?.name || '').trim();
+  const name = String(user?.display_name || user?.name || '').trim();
   return isProfessor(user) && !/^dr[. ]/i.test(name) ? `Dr. ${name}` : name;
 }
 

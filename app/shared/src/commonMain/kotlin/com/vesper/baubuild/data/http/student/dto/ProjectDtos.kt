@@ -40,31 +40,44 @@ internal data class ProjectDto(
     @SerialName("is_bookmarked") val isBookmarked: Boolean = false,
     @SerialName("my_membership") val myMembership: MyMembershipDto? = null,
     val eligibility: EligibilityDto? = null,
+    // Newer backend fields (all optional).
+    val summary: String? = null,
+    @SerialName("repo_full_name") val repoFullName: String? = null,
+    @SerialName("class_code") val classCode: String? = null,
+    /** `none` | `member` | `pending_approval`. */
+    @SerialName("membership_status") val membershipStatus: String? = null,
 ) {
+    /** Not joined and not requested (those projects live in My Work). */
+    val isOpenToViewer: Boolean
+        get() = myMembership == null && (membershipStatus == null || membershipStatus == "none")
+
     /**
      * [classCodes] maps a backend class id to its display code (from `/v1/me/classes` or the class payload);
      * unknown ids are shown as-is.
      */
     fun toDomain(now: Instant, classCodes: Map<String, String> = emptyMap()): Project {
         val repoName = repo?.name?.takeIf { it.isNotBlank() }
+        val fullName = (repoFullName ?: repo?.fullName)?.trim()?.trim('/')?.takeIf { '/' in it }
+            // Only a real "owner/name" is usable with GitHub; a bare name has no owner, so no guess here.
+            ?: repoName?.takeIf { '/' in it }
         val text = description.orEmpty()
         return Project(
             id = id,
             title = title,
             owner = department,
-            summary = Wire.summaryOf(text),
+            summary = summary?.takeIf { it.isNotBlank() } ?: Wire.summaryOf(text),
             description = text,
             bountyUsd = bounty,
             difficulty = Wire.difficulty(difficulty),
             minScore = minScore ?: Wire.minScoreFromLabel(minScoreLabel),
             joinPolicy = Wire.joinPolicy(joining),
             dueInDays = Wire.dueInDays(dueAt, now),
-            repoName = repoName?.substringAfterLast('/'),
-            repoConnected = repo?.connected == true,
-            // Only a real "owner/name" is usable with GitHub; a bare name has no owner, so no guess here.
-            repoFullName = repoName?.takeIf { '/' in it },
+            repoName = (repoName ?: fullName)?.substringAfterLast('/'),
+            repoConnected = repo?.viewerGithubLinked ?: (repo?.connected == true),
+            repoFullName = fullName,
             reviewer = Wire.reviewer(reviewedBy),
-            classCode = classId?.let { classCodes[it] ?: it },
+            classCode = classCode?.takeIf { it.isNotBlank() } ?: classId?.let { classCodes[it] ?: it },
+            membership = Wire.membership(membershipStatus, myMembership?.status),
         )
     }
 }
@@ -74,8 +87,11 @@ internal data class RepoDto(
     /** `github`. */
     val provider: String? = null,
     val name: String? = null,
+    /** `owner/name`. */
+    @SerialName("full_name") val fullName: String? = null,
     /** True when the signed-in user has GitHub connected (not a property of the repository). */
     val connected: Boolean = false,
+    @SerialName("viewer_github_linked") val viewerGithubLinked: Boolean? = null,
 )
 
 @Serializable

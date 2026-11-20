@@ -3,7 +3,9 @@ package com.vesper.baubuild.data.http.student.dto
 import com.vesper.baubuild.core.model.ChangeStatus
 import com.vesper.baubuild.core.model.Difficulty
 import com.vesper.baubuild.core.model.JoinPolicy
+import com.vesper.baubuild.core.model.MembershipStatus
 import com.vesper.baubuild.core.model.Reviewer
+import com.vesper.baubuild.core.model.TaskPriority
 import com.vesper.baubuild.core.model.TaskStatus
 import kotlin.time.Instant
 
@@ -30,6 +32,23 @@ internal object Wire {
         else -> Reviewer.AiThenDevLead
     }
 
+    /**
+     * `membership_status` (`none | member | pending_approval`), else the older `my_membership.status`
+     * (`joined | pending_approval`). Null = no membership.
+     */
+    fun membership(status: String?, legacy: String?): MembershipStatus? = when (status ?: legacy) {
+        "member", "joined" -> MembershipStatus.In
+        "pending_approval", "pending" -> MembershipStatus.WaitingForApproval
+        else -> null
+    }
+
+    /** `priority`: `low | medium | high` (unknown → medium). */
+    fun priority(value: String?): TaskPriority = when (value?.lowercase()) {
+        "low" -> TaskPriority.Low
+        "high" -> TaskPriority.High
+        else -> TaskPriority.Medium
+    }
+
     /** Task `status` + `lane`: a `todo` task in the `backlog` lane is Backlog, otherwise To Do. */
     fun taskStatus(status: String?, lane: String?): TaskStatus = when (status) {
         "in_progress" -> TaskStatus.InProgress
@@ -47,8 +66,8 @@ internal object Wire {
     /** Submission `lead_status` / branch commit `state`: `pending | approved | sent_back`. */
     fun changeStatus(value: String?): ChangeStatus = when (value) {
         "approved" -> ChangeStatus.Approved
-        "sent_back" -> ChangeStatus.ChangesRequested
-        "pending" -> ChangeStatus.WithDevLead
+        "sent_back", "changes_requested" -> ChangeStatus.ChangesRequested
+        "pending", "with_dev_lead" -> ChangeStatus.WithDevLead
         else -> ChangeStatus.Pushed
     }
 

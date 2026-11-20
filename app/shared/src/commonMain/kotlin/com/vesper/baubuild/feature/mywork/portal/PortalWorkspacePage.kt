@@ -233,7 +233,7 @@ private fun MainColumn(
         SegmentedControl(segment, onSelectSegment)
         when (segment) {
             WorkspaceSegment.Tasks -> TasksCard(workspace.tasks.filter { it.assignedToMe }, onOpenTask)
-            // TODO(backend): CodeChange has no per-change diff URL; "View diff" opens the review's branch diff.
+            // Each change links to its own commit/compare URL; older servers fall back to the review's branch diff.
             WorkspaceSegment.Changes -> ChangesCard(workspace.changes, diffUrl = review?.diffUrl)
         }
         if (review != null) ReviewStatusPanel(review)
@@ -333,12 +333,14 @@ private fun ChangesCard(changes: List<CodeChange>, diffUrl: String?) {
             EmptyMessage("Nothing pushed yet", "Push a branch to the project repo and it appears here.")
         }
         changes.forEach { change ->
-            ListRow(change.title, change.branch, mono = true) {
+            val subtitle = listOfNotNull(change.branch, change.sha?.take(7)?.takeIf { it != change.branch }).joinToString(" · ")
+            ListRow(change.title, subtitle, mono = true) {
                 PortalChangeChip(change.status)
-                if (diffUrl != null) {
+                val link = change.url ?: diffUrl
+                if (link != null) {
                     PortalLink(
                         "View diff",
-                        onClick = { runCatching { uriHandler.openUri(diffUrl) } },
+                        onClick = { runCatching { uriHandler.openUri(link) } },
                         modifier = Modifier.semantics { contentDescription = "View diff for ${change.title}" },
                     )
                 }

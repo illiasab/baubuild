@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vesper.baubuild.core.media.LocalImageStore
 import com.vesper.baubuild.core.media.PickedImage
+import com.vesper.baubuild.core.model.AccountKind
 import com.vesper.baubuild.core.model.User
 import com.vesper.baubuild.core.session.SessionState
 import com.vesper.baubuild.core.session.SessionStore
@@ -32,6 +33,9 @@ data class EditProfileUiState(
     /** Text in the "Add a skill" field, not yet committed. */
     val skillDraft: String = "",
     val githubUsername: String = "",
+    /** Staff only: job title ("Professor") and department. */
+    val title: String = "",
+    val department: String = "",
     val photo: PhotoEdit = PhotoEdit.Unchanged,
     val saving: Boolean = false,
     /** Inline error under the Save button (save failed). The form keeps its input. */
@@ -66,8 +70,12 @@ data class EditProfileUiState(
                 normalizedName != u.displayName ||
                 normalizedBio != u.bio ||
                 skills != u.skills ||
-                normalizedGithub != (u.githubUsername ?: "")
+                normalizedGithub != (u.githubUsername ?: "") ||
+                (isStaff && (title.trim() != u.title.orEmpty() || department.trim() != u.department.orEmpty()))
         }
+
+    /** Staff accounts also edit their title and department. */
+    val isStaff: Boolean get() = original?.kind == AccountKind.BauStaff
 
     val canSave: Boolean get() = isDirty && isValid && !saving
     val canAddMoreSkills: Boolean get() = skills.size < EditProfileRules.MAX_SKILLS
@@ -99,6 +107,7 @@ object EditProfileRules {
     const val MIN_NAME = 2
     const val MAX_NAME = 50
     const val MAX_BIO = 280
+    const val MAX_TITLE = 80
     const val MAX_SKILLS = 10
     const val MAX_SKILL_LENGTH = 30
     const val MAX_GITHUB = 39
@@ -141,6 +150,8 @@ class EditProfileViewModel(
             bio = user.bio,
             skills = user.skills,
             githubUsername = user.githubUsername.orEmpty(),
+            title = user.title.orEmpty(),
+            department = user.department.orEmpty(),
         )
     }
 
@@ -154,6 +165,10 @@ class EditProfileViewModel(
     fun onBioChange(text: String) = update { copy(bio = text.take(EditProfileRules.MAX_BIO), error = null) }
 
     fun onGithubChange(text: String) = update { copy(githubUsername = text.take(100), error = null) }
+
+    fun onTitleChange(text: String) = update { copy(title = text.take(EditProfileRules.MAX_TITLE), error = null) }
+
+    fun onDepartmentChange(text: String) = update { copy(department = text.take(EditProfileRules.MAX_TITLE), error = null) }
 
     fun onSkillDraftChange(text: String) {
         // A typed comma or newline commits the skill (hardware keyboards / pasted lists).
@@ -247,6 +262,8 @@ class EditProfileViewModel(
                         githubUsername = connectedGitHubLogin() ?: form.normalizedGithub,
                         avatarUrl = avatarUrl,
                         removeAvatar = removeAvatar,
+                        title = form.title.trim().takeIf { form.isStaff },
+                        department = form.department.trim().takeIf { form.isStaff },
                     ),
                 )
                 session.updateUser(updated)

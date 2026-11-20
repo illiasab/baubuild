@@ -1,7 +1,61 @@
-# Backend: GitHub token registration (proposed)
+# Backend: GitHub token registration
 
-Status: **proposed** — the app already calls it and tolerates `404`/`405` until it ships.
-Language-agnostic HTTP contract; the backend is being rewritten in Go, so examples are Go.
+Status: **implemented** in the Go server (`server/go/github.go`, 2026-11-19). The sections after "Implemented
+contract" are the original proposal, kept for the reasoning; where they differ, **the implemented contract wins**.
+Language-agnostic HTTP contract; examples are Go.
+
+## Implemented contract
+
+One GitHub connection per BAU BUILD user. The web links through OAuth (`POST /v1/integrations/github/connect` →
+callback, source `oauth`); the app registers a fine-grained PAT (`PUT /v1/integrations/github/token`, source `pat`).
+The newer link replaces the older one.
+
+| Endpoint | Behaviour |
+|---|---|
+| `PUT /v1/integrations/github/token {token, login?}` | `GET /user` with the token (`X-GitHub-Api-Version: 2022-11-28`, 10 s timeout). GitHub 401 → `400 invalid_token`. Org check of `GITHUB_ORG` via `GET /user/memberships/orgs/{org}` (state `active`), falling back to `GET /orgs/{org}/members/{login}` (with `GITHUB_SERVICE_TOKEN` when set) → not a member: `403 not_org_member` (check skipped with `GITHUB_ORG_CHECK=false`; if GitHub won't say, the link is kept with `org_member: null`). Same GitHub id on another user → `409 github_account_in_use`. GitHub down → `502 github_unavailable`. Blank token → `400 invalid_body`. Stores the sealed token, login, GitHub id, `source = pat`, `linked_at`; sets `github_username` when empty. `200 {connected: true, login, source: "pat", linked_at, org_member}`. `login` in the body is ignored. |
+| `GET /v1/integrations/github` | `{connected, login, source: "oauth"\|"pat"\|null, linked_at}`. Never the token. |
+| `DELETE /v1/integrations/github` | Clears token, login, GitHub id, source, linked_at. (No GitHub-side revoke yet.) |
+| `POST /v1/tasks/{id}/branch {name}` | The task's student records the branch the app created (`task/<task_id>-<slug>`). Returns the task. |
+| `GET /v1/projects/{id}/tasks` | Each task also has `branch`, `pr_number`, `pr_url`, `pr_state` (`open`\|`closed`\|`merged`), `last_commit_sha`, `last_commit_message` (null until known). |
+| `GET /v1/projects/{id}/changes` | `github_commits`: last 20 commits (`GET /repos/{repo}/commits?sha=<branch>&per_page=20`) of each of the caller's task branches — recorded ones (branch route, webhook, `task/` submissions), else found via `GET /repos/{repo}/branches`. Each `{sha, message, branch, author_login, url, committed_at}`, newest first. Caller's token, else `GITHUB_SERVICE_TOKEN`. Cached 60 s per (repo, branch). Never fails because of GitHub: `github_commits: []` and `github_error` = `not_configured` \| `github_not_linked` \| `github_unauthorized` \| `github_forbidden` \| `github_not_found` \| `github_unavailable`. |
+| `POST /v1/integrations/github/webhook` | No bearer auth. `X-Hub-Signature-256` HMAC-SHA256 with `GITHUB_WEBHOOK_SECRET` (401 `invalid_signature`; 503 `github_not_configured` when unset). `push` to `task/<task_id>-…` → records branch + last sha/message, `task_updated` live event to the task's student. `pull_request` `opened`/`reopened`/`synchronize`/`closed` → links PR number/url/state; merged → task `done` (if not already) + notification. Other branches, unknown tasks, other repos and other events → `200 {ok, ignored}`. |
+| `GET /v1/config` | `features.github` is true when `GITHUB_CLIENT_ID` or a valid `GITHUB_TOKEN_KEY` is set. |
+
+### Storage
+
+`users.github_token` holds `v1:` + base64(nonce ‖ AES-256-GCM ciphertext), with the user id as associated data (a value
+copied to another row won't decrypt). On start, with a key set, plain values left from before are sealed in place
+(best effort: a row that fails is logged by user id and left as is). Plain values are still read, so nothing breaks
+during the switch. Without a key, tokens are stored as is and a warning is logged once — fine for dev, **set the key in
+production**. Tokens are never logged or returned. Webhook data lives in `task_branches (task_id, repo_full_name,
+branch, last_sha, last_message, pr_number, pr_url, pr_state, updated_at)`. All migrations are additive.
+
+### Environment
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GITHUB_TOKEN_KEY` | unset | base64 of 32 random bytes (`head -c32 /dev/urandom \| base64`). Seals tokens. Keep it in the secret manager; losing it means users must reconnect. |
+| `GITHUB_ORG` | `bau-build` | Org for repos and the membership check. |
+| `GITHUB_ORG_CHECK` | on | `false` skips the membership check. |
+| `GITHUB_WEBHOOK_SECRET` | unset | Webhook HMAC secret. Unset → the webhook answers 503. |
+| `GITHUB_SERVICE_TOKEN` | unset | Fallback token (org bot / GitHub App token) for commits and the members check. |
+| `GITHUB_API_URL` | `https://api.github.com` | Override for tests / GitHub Enterprise. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REDIRECT_URI` | unset | Web OAuth flow (unchanged). |
+
+Nothing here is required to run: with no GitHub env the server starts, every route works, `features.github` is false,
+`/changes` returns `github_commits: []` with `github_error: "not_configured"`, and the webhook answers 503.
+
+### Configure the org webhook
+
+GitHub → `bau-build` organization → Settings → Webhooks → Add webhook:
+
+- Payload URL: `https://api.baubuild.vesperconnect.org/v1/integrations/github/webhook`
+- Content type: `application/json`
+- Secret: the same value as `GITHUB_WEBHOOK_SECRET`
+- Events: "Let me select individual events" → **Pushes** and **Pull requests**
+- Active: on. GitHub sends a `ping` first; the server answers `200`.
+
+---
 
 ## Why
 

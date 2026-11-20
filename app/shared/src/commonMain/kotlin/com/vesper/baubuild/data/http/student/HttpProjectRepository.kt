@@ -46,7 +46,7 @@ class HttpProjectRepository(
     override suspend fun openProjects(difficulty: Difficulty?): List<Project> {
         val items = client.getAllPages<ProjectDto>("v1/projects") {
             difficulty?.let { parameter("difficulty", Wire.difficulty(it)) }
-        }.filter { it.myMembership == null }
+        }.filter { it.isOpenToViewer }
         return items.toDomain()
     }
 
@@ -60,7 +60,7 @@ class HttpProjectRepository(
         // Every item belongs to this class, so they all get its display code.
         val code = dto.bauClass?.code?.ifBlank { null } ?: classCode
         val n = now()
-        return dto.items.filter { it.myMembership == null }.map { it.toDomain(n).copy(classCode = code) }
+        return dto.items.filter { it.isOpenToViewer }.map { it.toDomain(n).copy(classCode = code) }
     }
 
     override suspend fun join(projectId: String): Membership {
@@ -87,7 +87,7 @@ class HttpProjectRepository(
     }
 
     private suspend fun List<ProjectDto>.toDomain(): List<Project> {
-        val codes = if (any { it.classId != null }) classCodes() else emptyMap()
+        val codes = if (any { it.classId != null && it.classCode.isNullOrBlank() }) classCodes() else emptyMap()
         val n = now()
         return map { it.toDomain(n, codes) }
     }

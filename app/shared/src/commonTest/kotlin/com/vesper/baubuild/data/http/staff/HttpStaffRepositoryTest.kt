@@ -208,8 +208,8 @@ class HttpStaffRepositoryTest {
     @Test
     fun lockedInquiryErrorsBecomeApiException() = runTest {
         val h = Harness { method, _, _ ->
-            if (method == "GET") json(inquiryJson("a1", "approved"))
-            else error(HttpStatusCode.Conflict, "inquiry_locked", "Only a submitted inquiry can be deleted.")
+            if (method == "GET") json(inquiryJson("a1", "cancelled"))
+            else error(HttpStatusCode.Conflict, "inquiry_locked", "That inquiry is already cancelled.")
         }
         val e = assertFailsWith<ApiException> { h.repo.cancel("a1") }
         assertEquals(409, e.status)
@@ -237,9 +237,10 @@ class HttpStaffRepositoryTest {
     }
 
     @Test
-    fun overviewIsComputedFromInquiries() = runTest {
-        val h = Harness { _, _, _ ->
-            json(
+    fun overviewIsComputedFromInquiriesOnOlderServers() = runTest {
+        val h = Harness { _, path, _ ->
+            if (path == "/v1/staff/overview") error(HttpStatusCode.NotFound, "not_found", "No route matches that path.")
+            else json(
                 """{"items":[${inquiryJson("a", "submitted", bounty = 10)},${inquiryJson("b", "closed", bounty = 30)},
                 ${inquiryJson("c", "closed", bounty = 20)},${inquiryJson("d", "cancelled", bounty = 15)},
                 ${inquiryJson("e", "in_progress", bounty = 5)}]}""",
@@ -255,6 +256,62 @@ class HttpStaffRepositoryTest {
     }
 
     @Test
+    fun overviewUsesTheStaffOverviewEndpoint() = runTest {
+        val h = Harness { _, path, _ ->
+            assertEquals("/v1/staff/overview", path)
+            json("""{"raised_usd":120,"wasted_usd":20,"open":3,"in_progress":2,"delivered":4,"needs_attention":null,"extra":1}""")
+        }
+        val o = h.repo.overview()
+        assertEquals(120, o.raisedUsd)
+        assertEquals(20, o.wastedUsd)
+        assertEquals(3, o.openCount)
+        assertEquals(2, o.inProgressCount)
+        assertEquals(4, o.deliveredCount)
+        assertEquals(1, h.calls.size) // no fallback list read
+    }
+
+    @Test
+    fun stageWinsOverStatusAndCarriesWastedBudget() = runTest {
+        fun withStage(id: String, status: String, stage: String, wasted: Int = 0) =
+            inquiryJson(id, status).trimEnd().removeSuffix("}") +
+                ""","stage":"$stage","wasted_usd":$wasted,"updated_at":"2026-11-19T10:00:00Z","cancelled_at":${if (stage == "cancelled") "\"2026-11-19T10:00:00Z\"" else "null"}}"""
+        val h = Harness { _, _, _ ->
+            json("""{"items":[${withStage("a", "published", "in_progress")},${withStage("b", "published", "delivered")},
+                ${withStage("c", "cancelled", "cancelled", wasted = 25)},${withStage("d", "submitted", "draft")},${withStage("e", "published", "open")}]}""")
+        }
+        val list = h.repo.inquiries().associateBy { it.id }
+        assertEquals(InquiryStatus.InProgress, list.getValue("a").status)
+        assertEquals(InquiryStatus.Done, list.getValue("b").status)
+        val c = list.getValue("c")
+        assertEquals(InquiryStatus.Cancelled, c.status)
+        assertEquals(25, c.wastedUsd)
+        assertEquals("$25 budget wasted", c.latest)
+        assertEquals("2026-11-19T10:00:00Z", c.cancelledAt)
+        assertEquals(InquiryStatus.Posted, list.getValue("d").status)
+        assertEquals("Waiting for review", list.getValue("d").latest)
+        assertEquals(true, list.getValue("d").canDelete)
+        assertEquals(false, list.getValue("e").canDelete)
+        assertEquals("Live on the board", list.getValue("e").latest)
+        assertEquals("2026-11-19T10:00:00Z", list.getValue("e").updatedAt)
+    }
+
+    @Test
+    fun cancelPublishedPostsCancelAndReturnsWasted() = runTest {
+        val h = Harness { method, path, _ ->
+            when {
+                method == "GET" -> json(inquiryJson("a1", "published"))
+                method == "POST" && path == "/v1/inquiries/a1/cancel" ->
+                    json(inquiryJson("a1", "cancelled").trimEnd().removeSuffix("}") + ""","stage":"cancelled","wasted_usd":40}""")
+                else -> error(HttpStatusCode.MethodNotAllowed, "x", "x")
+            }
+        }
+        val cancelled = h.repo.cancel("a1")
+        assertEquals(InquiryStatus.Cancelled, cancelled.status)
+        assertEquals(40, cancelled.wastedUsd)
+        assertEquals(listOf("GET /v1/inquiries/a1", "POST /v1/inquiries/a1/cancel"), h.calls.map { "${it.method} ${it.path}" })
+    }
+
+    @Test
     fun worldProjectsMissingRouteIsEmpty() = runTest {
         val h = Harness { _, path, _ ->
             assertEquals("/v1/world-projects", path)
@@ -266,7 +323,7 @@ class HttpStaffRepositoryTest {
     @Test
     fun worldProjectsParsesItems() = runTest {
         val h = Harness { _, _, _ ->
-            json("""{"items":[{"id":"w1","title":"Flood dashboard","summary":"Alerts","organization":"Open data","types":["web_app","Data / Script","Unknown"],"url":null}]}""")
+            json("""{"items":[{"id":"w1","title":"Flood dashboard","summary":"Alerts","organization":"Open data","project_types":["web_app","Data / Script","Unknown"],"url":null}]}""")
         }
         val w = h.repo.worldProjects().single()
         assertEquals(setOf(ProjectType.WebApp, ProjectType.DataScript), w.types)
@@ -288,7 +345,7 @@ class HttpStaffRepositoryTest {
         }
         val p = h.repo.profile()
         assertEquals("Computer Science", p.department)
-        assertEquals("Staff", p.title)
+        assertEquals("Staff", p.title) // no title on the account yet
         assertEquals(listOf("CMPS210", "CMPS433"), p.classes)
         assertEquals(2, p.projectsPosted)
         assertEquals(1, p.delivered)
@@ -296,6 +353,18 @@ class HttpStaffRepositoryTest {
         val updated = h.repo.updateNotifications(notifyWhenDone = false, notifyWhenStudentJoins = true)
         assertEquals(false, updated.notifyWhenDone)
         assertEquals(false, h.repo.profile().notifyWhenDone)
+    }
+
+    @Test
+    fun profileUsesTheAccountTitle() = runTest {
+        val h = Harness { _, path, _ ->
+            when (path) {
+                "/v1/me" -> json(me.trimEnd().removeSuffix("}") + ""","title":"Professor","display_name":"Nora Hale"}""")
+                "/v1/senior-engineers" -> error(HttpStatusCode.NotFound, "not_found", "x")
+                else -> json("""{"items":[]}""")
+            }
+        }
+        assertEquals("Professor", h.repo.profile().title)
     }
 
     @Test

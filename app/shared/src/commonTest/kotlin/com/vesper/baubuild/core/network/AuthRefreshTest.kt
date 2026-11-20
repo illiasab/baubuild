@@ -244,12 +244,11 @@ class AuthRefreshTest {
     @Test
     fun apiErrorsCarryRetryHints() = runTest {
         val client = client {
-            jsonResponse("""{"error":{"code":"email_not_verified","message":"m","resend_after_s":40},"retry_after_s":7}""",
+            jsonResponse("""{"error":{"code":"too_many_attempts","message":"m"},"retry_after_s":7}""",
                 io.ktor.http.HttpStatusCode.Forbidden)
         }
         val e = assertFailsWith<ApiException> { apiCall { client.post("v1/auth/login") } }
-        assertEquals("email_not_verified", e.code)
-        assertEquals(40L, e.resendAfterSeconds)
+        assertEquals("too_many_attempts", e.code)
         assertEquals(7L, e.retryAfterSeconds)
     }
 }

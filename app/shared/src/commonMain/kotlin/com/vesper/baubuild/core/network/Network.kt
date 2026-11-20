@@ -140,8 +140,7 @@ internal enum class AuthRouteKind {
     /** `POST /v1/auth/logout`: Bearer token (it revokes that session), but a 401 never triggers a refresh. */
     BearerNoRefresh,
     /**
-     * The public auth flow — `/v1/auth/register`, `verify-email`, `resend-code`, `login`, `password/forgot`,
-     * `password/reset`, `refresh` and any future `/v1/auth/…` route: no Bearer token, and a 401 (e.g.
+     * The public auth flow — `/v1/auth/register`, `login`, `refresh` and any future `/v1/auth/…` route: no Bearer token, and a 401 (e.g.
      * `invalid_credentials`) is the answer itself, never a reason to refresh.
      */
     Public,

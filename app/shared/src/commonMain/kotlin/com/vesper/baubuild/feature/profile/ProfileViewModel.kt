@@ -8,6 +8,7 @@ import com.vesper.baubuild.core.model.User
 import com.vesper.baubuild.core.session.SessionState
 import com.vesper.baubuild.core.session.SessionStore
 import com.vesper.baubuild.data.github.GitHubAccount
+import com.vesper.baubuild.data.http.config.FeatureFlags
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,6 +32,8 @@ data class ProfileUiState(
     val showingGitHub: Boolean = false,
     /** The connected GitHub account (token in secure storage), or null. */
     val gitHubAccount: GitHubAccount? = null,
+    /** `features.github`: off → no Connect / Manage actions, a quiet note instead. */
+    val gitHubEnabled: Boolean = true,
 ) {
     /** GitHub login to show: the connected account, else the username saved on the profile. */
     val gitHubLogin: String?
@@ -47,14 +50,19 @@ class ProfileViewModel(
     private val performSignOut: suspend () -> Unit = { session.signOut() },
     /** [com.vesper.baubuild.data.github.GitHubRepository.account]. */
     private val gitHubAccount: StateFlow<GitHubAccount?> = MutableStateFlow(null),
+    /** `/v1/config` feature flags; `github` gates the Connect GitHub actions. */
+    private val features: StateFlow<FeatureFlags> = MutableStateFlow(FeatureFlags(mapOf("github" to true))),
 ) : ViewModel() {
     private val local = MutableStateFlow(ProfileUiState())
 
-    val state: StateFlow<ProfileUiState> = combine(session.state, local, gitHubAccount) { s, l, gh ->
-        l.copy(user = (s as? SessionState.SignedIn)?.user, gitHubAccount = gh)
+    val state: StateFlow<ProfileUiState> = combine(session.state, local, gitHubAccount, features) { s, l, gh, f ->
+        l.copy(user = (s as? SessionState.SignedIn)?.user, gitHubAccount = gh, gitHubEnabled = f.github)
     }.stateIn(
         viewModelScope, SharingStarted.Eagerly,
-        local.value.copy(user = (session.state.value as? SessionState.SignedIn)?.user, gitHubAccount = gitHubAccount.value),
+        local.value.copy(
+            user = (session.state.value as? SessionState.SignedIn)?.user, gitHubAccount = gitHubAccount.value,
+            gitHubEnabled = features.value.github,
+        ),
     )
 
     fun openBecomeLead() { local.value = local.value.copy(showingLead = true) }
@@ -67,7 +75,9 @@ class ProfileViewModel(
 
     fun closeEditProfile() { local.value = local.value.copy(editingProfile = false) }
 
-    fun openGitHub() { local.value = local.value.copy(showingGitHub = true) }
+    fun openGitHub() {
+        if (state.value.gitHubEnabled) local.value = local.value.copy(showingGitHub = true)
+    }
 
     fun closeGitHub() { local.value = local.value.copy(showingGitHub = false) }
 

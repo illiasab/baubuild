@@ -25,6 +25,8 @@ import com.vesper.baubuild.data.http.staff.splitDoneItems
  * | in_progress (not sent today)          | InProgress   | Students are building it             |
  * | closed / done / delivered             | Done         | Delivered                            |
  * | cancelled / canceled / rejected / withdrawn | Cancelled | Withdrawn                          |
+ *
+ * When the backend sends `stage`, [appStatus] / [latestLine] use it instead (cancelled → "$N budget wasted").
  * | draft (not sent today)                | Draft        | Draft                                |
  * | anything else                         | Posted       | (raw status)                         |
  *
@@ -178,6 +180,26 @@ internal object InquiryDescription {
     }
 }
 
+/**
+ * Newer backends send `stage` (`draft | open | in_progress | delivered | cancelled`); it wins over `status`.
+ * `draft` keeps the status-based line ("Waiting for review" / "Approved · going live soon").
+ */
+internal fun InquiryDto.appStatus(): InquiryStatus = when (stage?.lowercase()) {
+    "cancelled" -> InquiryStatus.Cancelled
+    "delivered" -> InquiryStatus.Done
+    "in_progress" -> InquiryStatus.InProgress
+    "open", "draft" -> InquiryStatus.Posted
+    else -> status.toStatus()
+}
+
+internal fun InquiryDto.latestLine(): String = when (stage?.lowercase()) {
+    "cancelled" -> if (wastedUsd > 0) "\$$wastedUsd budget wasted" else "Cancelled"
+    "delivered" -> "Delivered"
+    "in_progress" -> "Students are building it"
+    "open" -> "Live on the board"
+    else -> latestFor(status)
+}
+
 /** Backend inquiry → app [StaffInquiry]. The posted text is both the draft (editable) and the refined version. */
 internal fun InquiryDto.toStaffInquiry(): StaffInquiry {
     val parsed = InquiryDescription.parse(description)
@@ -203,7 +225,7 @@ internal fun InquiryDto.toStaffInquiry(): StaffInquiry {
     return StaffInquiry(
         id = id,
         draft = draft,
-        status = status.toStatus(),
+        status = appStatus(),
         refined = RefinedInquiry(
             title = title,
             brief = parsed.body,
@@ -215,8 +237,12 @@ internal fun InquiryDto.toStaffInquiry(): StaffInquiry {
             deadline = draft.deadline,
             whatAiChanged = "",
         ),
-        latest = latestFor(status),
+        latest = latestLine(),
         rewardLabel = reward,
+        canDelete = status.lowercase() == "submitted",
+        wastedUsd = wastedUsd,
+        updatedAt = updatedAt,
+        cancelledAt = cancelledAt,
         reviewedBy = when (reviewerType) {
             "professor" -> "professor"
             "ai_then_lead" -> "dev lead"
@@ -230,6 +256,6 @@ internal fun WorldProjectDto.toWorldProject(): WorldProject = WorldProject(
     title = title,
     summary = summary ?: description ?: "",
     organization = organization,
-    types = types.mapNotNull { projectTypeOf(it) }.toSet(),
+    types = projectTypes.ifEmpty { types }.mapNotNull { projectTypeOf(it) }.toSet(),
     url = url,
 )

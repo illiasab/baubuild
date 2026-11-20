@@ -1,8 +1,7 @@
 package com.vesper.baubuild.core.session
 
 /**
- * What the app tells the backend about itself (`device` in `POST /v1/auth/register`, `login`, `verify-email`,
- * `password/reset`) and what
+ * What the app tells the backend about itself (`device` in `POST /v1/auth/register`, `login`) and what
  * `GET /v1/config`'s `min_supported` is keyed by.
  */
 data class DeviceInfo(

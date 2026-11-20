@@ -144,10 +144,10 @@ The backend also holds it so the org's push-control agent can work with it. Full
 
 | | Endpoint / component | Notes |
 |---|---|---|
-| 🆕 | `PUT /v1/integrations/github/token {token, login}` | Validate via GitHub `GET /user`; check `bau-build` org membership; store **encrypted at rest** (KMS/sealed key — not hashed: it must be usable); link login ↔ user. |
-| ✅ | `GET/DELETE /v1/integrations/github` | Status + disconnect (delete stored token). |
-| 🆕 | GitHub App / webhook on the org | Receives `push` + `pull_request` events: maps `task/<task_id>-<slug>` branches → task, records commits (feeds `/changes` and staff daily progress), runs the AI review on PRs, enforces branch protection on `main`. |
-| 🆕 | `POST /v1/tasks/{id}/branch {name}` (optional) | App announces the branch it created (webhook can also infer it). |
+| ✅ | `PUT /v1/integrations/github/token {token, login}` | Done (Go server, 2026-11-19): validates via GitHub `GET /user`; checks `GITHUB_ORG` membership (`403 not_org_member`, skip with `GITHUB_ORG_CHECK=false`); `400 invalid_token` on GitHub 401; `409 github_account_in_use`; stored AES-256-GCM encrypted (`GITHUB_TOKEN_KEY`), source `pat`. Same single connection as the web OAuth flow. |
+| ✅ | `GET/DELETE /v1/integrations/github` | `{connected, login, source: oauth\|pat\|null, linked_at}`; DELETE clears token, login and source. |
+| ✅ | Org webhook `POST /v1/integrations/github/webhook` | Done: HMAC `X-Hub-Signature-256` (`GITHUB_WEBHOOK_SECRET`; 503 when unset). `push` on `task/<task_id>-…` records branch + last commit and sends `task_updated`; `pull_request` links number/url/state; merged → task `done` + notification. Tasks expose `branch`, `pr_number`, `pr_url`, `pr_state`. `/changes` fills `github_commits` (60 s cache; `github_error` instead of failing). Still open: AI review on PRs, branch protection (GitHub-side config). |
+| ✅ | `POST /v1/tasks/{id}/branch {name}` | Done: records the app-created branch so commits show before the webhook fires. |
 | ✏️ | `POST /v1/projects/{id}/submissions {branch, pr_number}` | Link "Mark as Done" PR to the submission/review timeline. |
 | — | Repos | Projects must carry `repo_full_name`; students need repo access (org team per project) for their token to work. |
 
@@ -268,9 +268,9 @@ device registration for push. The app will adopt these next.
 ## 9. Found in the Go server (2026-11-19)
 
 - **Auth routes**: email + password registration and login are in the Go server, with no email step (see §1).
-- **GitHub token route missing**: the app calls `PUT /v1/integrations/github/token` (§4, `docs/BACKEND_GITHUB_TOKEN.md`);
-  the Go server only has the OAuth connect → callback flow. Add the token route (the app keeps working and retries until
-  it exists). `features.github` in `/v1/config` is `false` today; the app skips linking while it's false.
+- ✅ **GitHub token route**: `PUT /v1/integrations/github/token` exists (§4, `docs/BACKEND_GITHUB_TOKEN.md`).
+  `features.github` in `/v1/config` is `true` when the OAuth app (`GITHUB_CLIENT_ID`) or `GITHUB_TOKEN_KEY` is configured,
+  `false` otherwise (the app skips linking while it's false).
 - **Mentor AI**: `GET/POST /v1/projects/{id}/mentor/messages` exists (POST `{text}` ≤ 500 chars → SSE `delta` … `done`)
   but isn't in `docs/openapi.json` — document it and the app will wire the chat.
 - **Notifications**: returns at most 21 items and ignores `cursor` — implement paging.

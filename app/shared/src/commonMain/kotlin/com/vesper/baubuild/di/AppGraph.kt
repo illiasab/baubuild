@@ -68,6 +68,15 @@ class AppGraph(
             ),
         )
     }
+    /** `features.github` from `/v1/config` (off until the server says otherwise; production has it off). */
+    val gitHubEnabled: Boolean get() = appConfigRepository.features.value.github
+
+    /**
+     * The GitHub repository for flows that need GitHub (code workspace, Start Task branches), or null while
+     * `features.github` is off — callers then fall back to status-only behaviour instead of failing.
+     */
+    fun gitHubOrNull(): GitHubRepository? = gitHubRepository.takeIf { gitHubEnabled }
+
     val profileRepository: ProfileRepository by lazy {
         HttpProfileRepository(httpClient, { (session.state.value as? SessionState.SignedIn)?.user }, policy)
     }

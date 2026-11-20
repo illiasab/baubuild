@@ -12,9 +12,7 @@ import kotlin.test.BeforeTest
 
 /** Records what the form ViewModels asked of the auth flow. */
 class RecordingNavigator : AuthNavigator {
-    val verifications = mutableListOf<Pair<String, Long?>>()
     val notAllowed = mutableListOf<String>()
-    override fun openVerifyEmail(email: String, resendAfterSeconds: Long?) { verifications += email to resendAfterSeconds }
     override fun showNotAllowed(email: String) { notAllowed += email }
 }
 

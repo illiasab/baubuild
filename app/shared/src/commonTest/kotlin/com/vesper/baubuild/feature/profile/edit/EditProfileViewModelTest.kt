@@ -1,5 +1,8 @@
 package com.vesper.baubuild.feature.profile.edit
 
+import kotlin.test.assertNull
+import com.vesper.baubuild.core.model.Role
+import com.vesper.baubuild.core.model.AccountKind
 import com.vesper.baubuild.core.media.LocalImageStore
 import com.vesper.baubuild.core.media.PickedImage
 import com.vesper.baubuild.core.model.User
@@ -68,6 +71,27 @@ class EditProfileViewModelTest {
         assertEquals(listOf("JavaScript", "Python"), vm.s().skills)
         assertFalse(vm.s().isDirty)
         assertFalse(vm.s().canSave)
+    }
+
+    @Test fun staffEditTitleAndDepartmentStudentsNeverSendThem() = runTest {
+        val staff = sam.copy(id = "u_staff", email = "nora.hale@bau.edu", kind = AccountKind.BauStaff, role = Role.Staff, title = "Lecturer")
+        val (_, repo, vm) = setup(staff)
+        assertEquals("Lecturer", vm.s().title)
+        vm.onTitleChange("Professor")
+        vm.onDepartmentChange("Computer Engineering")
+        assertTrue(vm.s().isDirty)
+        vm.save()
+        advanceUntilIdle()
+        assertEquals("Professor", repo.updates.single().title)
+        assertEquals("Computer Engineering", repo.updates.single().department)
+
+        val (_, studentRepo, studentVm) = setup()
+        studentVm.onBioChange("")
+        studentVm.save()
+        advanceUntilIdle()
+        assertEquals("", studentRepo.updates.single().bio) // an empty bio can be saved
+        assertNull(studentRepo.updates.single().title)
+        assertNull(studentRepo.updates.single().department)
     }
 
     @Test fun dirtyTracking() = runTest {

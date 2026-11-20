@@ -18,6 +18,10 @@ data class ProfileUpdate(
     val githubUsername: String,
     val avatarUrl: String? = null,
     val removeAvatar: Boolean = false,
+    /** Staff only (`PATCH /v1/me` `title`); null = not sent. `""` clears it. */
+    val title: String? = null,
+    /** Null = not sent. `""` clears it. */
+    val department: String? = null,
 )
 
 /**

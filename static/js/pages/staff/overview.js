@@ -1,8 +1,8 @@
 // Staff Overview (#/overview): greeting, stat cards, blocker banner, recent inquiries — or, with no inquiries yet,
 // "Post your first inquiry" and real-world project ideas (GET /v1/world-projects; 404 → hidden).
-// Numbers are computed from GET /v1/inquiries/mine (+ local drafts) until GET /v1/staff/overview exists.
+// Numbers come from GET /v1/staff/overview; an older server (404) gets them computed from GET /v1/inquiries/mine.
 import {
-  el, clear, icon, go, showLoading, showError, formatUsd, fetchAll, computeOverview, staffGreeting, statusChip,
+  el, clear, icon, go, showLoading, showError, formatUsd, fetchAll, fetchOverview, staffGreeting, statusChip,
   urgentChip, isUrgent, hasOpenBlocker, projectForLabel, inquiryHref, projectTypeOf, portalTypes, loadMe,
 } from './shared.js';
 
@@ -20,13 +20,12 @@ export default async function render(root, ctx) {
       return;
     }
     if (!alive) return;
-    let world = [];
-    if (!list.length) world = await worldProjects(ctx);
+    const [stats, world] = await Promise.all([fetchOverview(ctx, list), list.length ? [] : worldProjects(ctx)]);
     if (!alive) return;
-    draw(list, me, world);
+    draw(list, me, world, stats);
   }
 
-  function draw(list, me, world) {
+  function draw(list, me, world, stats) {
     clear(root);
     const page = el('div', { class: 'st-page' });
     root.append(page);
@@ -37,7 +36,6 @@ export default async function render(root, ctx) {
         el('h1', { class: 'st-h1' }, 'Overview')),
       el('a', { href: '#/new-inquiry', class: 'st-btn st-btn--yellow' }, icon('plus', 16), 'New inquiry')));
 
-    const stats = computeOverview(list);
     page.append(el('div', { class: 'st-stats' },
       stat('Raised money · this semester', formatUsd(stats.raisedUsd)),
       stat('Wasted budget · this semester', formatUsd(stats.wastedUsd), stats.wastedUsd > 0 ? 'warn' : null),
@@ -104,7 +102,7 @@ async function worldProjects(ctx) {
       title: String(p.title),
       summary: String(p.summary || p.description || ''),
       organization: String(p.organization || ''),
-      types: (Array.isArray(p.types) ? p.types : []).map(projectTypeOf).filter(Boolean),
+      types: [...new Set((Array.isArray(p.project_types) ? p.project_types : Array.isArray(p.types) ? p.types : []).map(projectTypeOf).filter(Boolean))],
       url: typeof p.url === 'string' && /^https?:\/\//i.test(p.url) ? p.url : null,
     }));
   } catch {

@@ -1,4 +1,4 @@
-// Staff profile (#/staff-profile): identity card + bio (PATCH /v1/me), stats from GET /v1/inquiries/mine,
+// Staff profile (#/staff-profile): identity card + name/title/department/GitHub/bio (PATCH /v1/me), stats from GET /v1/inquiries/mine,
 // DETAILS, NOTIFICATIONS (this browser only until the backend stores preferences), senior engineers
 // (GET /v1/senior-engineers; 404 → hidden; names open GET /v1/users/{id}), Sign out.
 import {
@@ -57,6 +57,7 @@ export default async function render(root, ctx) {
       kv('Department', me.department || '—'),
       kv('Role', staffTitle(me)),
       kv('Classes', classes.length ? classes.join(', ') : 'No classes'),
+      me.github_username ? kv('GitHub', el('a', { class: 'st-link', href: `https://github.com/${encodeURIComponent(me.github_username)}`, target: '_blank', rel: 'noopener noreferrer' }, `@${me.github_username}`)) : null,
       me.email ? kv('Email', me.email) : null);
 
     const prefs = loadPrefs();
@@ -103,12 +104,23 @@ export default async function render(root, ctx) {
   }
 
   function editBio(me) {
-    const area = el('textarea', { class: 'st-input st-textarea', maxlength: 280, rows: 4, value: me.bio || '', autofocus: true, 'aria-label': 'Bio' });
+    const field = (label, control, hint) => el('label', { class: 'st-field' }, el('span', { class: 'st-label' }, label), control, hint ? el('span', { class: 'st-hint' }, hint) : null);
+    const name = el('input', { class: 'st-input', maxlength: 80, autocomplete: 'name', value: me.display_name || me.name || '' });
+    const title = el('input', { class: 'st-input', maxlength: 80, placeholder: 'Professor', value: me.title || '' });
+    const department = el('input', { class: 'st-input', maxlength: 80, placeholder: 'Computer Engineering', value: me.department || '' });
+    const github = el('input', { class: 'st-input', maxlength: 40, autocomplete: 'off', spellcheck: 'false', placeholder: 'octocat', value: me.github_username || '' });
+    const area = el('textarea', { class: 'st-input st-textarea', maxlength: 280, rows: 4, value: me.bio || '', 'aria-label': 'Bio' });
     const count = el('span', { class: 'st-hint' }, `${(me.bio || '').length}/280`);
     const error = el('span', { class: 'st-field-error', role: 'alert', hidden: true });
     area.addEventListener('input', () => { count.textContent = `${area.value.length}/280`; });
-    const body = el('div', { class: 'st-field' }, el('label', { class: 'st-label' }, 'Bio'), area, count, error,
-      el('p', { class: 'st-small st-muted' }, 'Name, department and classes come from your BAU account.'));
+    const body = el('div', { class: 'st-form-stack' },
+      field('Name', name),
+      field('Title', title, 'Write “Professor” to be greeted as Dr.'),
+      field('Department', department),
+      field('GitHub username', github),
+      el('div', { class: 'st-field' }, el('span', { class: 'st-label' }, 'Bio'), area, count),
+      error);
+    const fail = (msg, input) => { error.textContent = msg; error.hidden = false; input?.focus(); return false; };
     ctx.ui.modal({
       title: 'Edit profile',
       body,
@@ -118,35 +130,42 @@ export default async function render(root, ctx) {
           label: 'Save',
           kind: 'primary',
           onClick: async () => {
+            error.hidden = true;
+            const displayName = name.value.trim().replace(/\s+/g, ' ');
+            const gh = github.value.trim().replace(/^@/, '');
             const bio = area.value.trim();
-            if (!bio || bio.length > 280) {
-              error.textContent = 'Bio must be 1 to 280 characters.';
-              error.hidden = false;
-              return false;
-            }
+            if (!displayName) return fail('Enter your name.', name);
+            if (bio.length > 280) return fail('Bio must be at most 280 characters.', area);
+            if (gh && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(gh)) return fail('That isn’t a valid GitHub username.', github);
+            const patch = {
+              display_name: displayName,
+              title: title.value.trim() || null,
+              department: department.value.trim() || null,
+              github_username: gh || null,
+              bio,
+            };
             try {
-              const updated = await ctx.api('/v1/me', { method: 'PATCH', body: { bio } });
+              const updated = await ctx.api('/v1/me', { method: 'PATCH', body: patch });
               try { ctx.session?.set?.(null, updated); } catch { /* shell keeps its own copy */ }
               try { await ctx.refreshUser?.(); } catch { /* optional */ }
               toast(ctx, 'Profile saved.', 'success');
               if (alive) load();
               return true;
             } catch (err) {
-              error.textContent = err?.message || 'Couldn’t save. Try again.';
-              error.hidden = false;
-              return false;
+              return fail(err?.message || 'Couldn’t save. Try again.');
             }
           },
         },
       ],
     });
+    requestAnimationFrame(() => name.focus());
   }
 
   function openEngineer(engineer) {
     const host = el('div', { class: 'st-eng-bio' });
     const paint = (e, note) => {
       clear(host);
-      host.append(
+      host.append(...[
         el('div', { class: 'st-eng-bio-head' }, el('span', { class: 'st-avatar', 'aria-hidden': 'true' }, initialsOf(e)),
           el('div', {}, el('strong', { class: 'st-h3' }, e.name), e.title ? el('p', { class: 'st-muted' }, e.title) : null,
             e.department ? el('p', { class: 'st-muted st-small' }, e.department) : null)),
@@ -154,7 +173,8 @@ export default async function render(root, ctx) {
         e.skills.length ? el('div', { class: 'st-pills' }, e.skills.map((s) => el('span', { class: 'st-pill' }, s))) : null,
         e.github ? el('a', { class: 'st-link', href: `https://github.com/${encodeURIComponent(e.github)}`, target: '_blank', rel: 'noopener noreferrer' }, `github.com/${e.github}`) : null,
         e.email ? el('a', { class: 'st-link', href: `mailto:${e.email}` }, e.email) : null,
-        note ? el('p', { class: 'st-small st-muted' }, note) : null);
+        note ? el('p', { class: 'st-small st-muted' }, note) : null,
+      ].filter(Boolean));
     };
     paint(engineer, 'Loading the full profile…');
     ctx.ui.modal({ title: engineer.name, body: host, actions: [{ label: 'Close', kind: 'secondary' }] });

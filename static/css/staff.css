@@ -239,3 +239,4 @@
   .st-spinner { animation-duration: 2s; }
   .st-row, .st-switch, .st-switch-knob { transition: none; }
 }
+.st-form-stack { display: flex; flex-direction: column; gap: 14px; }

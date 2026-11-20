@@ -146,4 +146,32 @@ class HttpProjectRepositoryTest {
         backend.on("GET", "/v1/projects/nope", HttpStatusCode.NotFound, Fixtures.error("not_found"))
         assertEquals("not_found", assertFailsWith<ApiException> { repo.project("nope") }.code)
     }
+
+    @Test
+    fun newerProjectFieldsWin() = runTest {
+        val detail = Fixtures.projectDetail(repoName = "library-booking").trimEnd().removeSuffix("}") +
+            """, "summary": "Past dates are accepted.", "repo_full_name": "bau-build/library-booking",
+                "class_code": "CMPS433", "membership_status": "pending_approval"}"""
+        backend.on("GET", "/v1/projects/library", body = detail.replace("\"connected\": false", "\"connected\": false, \"viewer_github_linked\": true, \"full_name\": \"bau-build/library-booking\""))
+        val p = repo.project("library")
+        assertEquals("Past dates are accepted.", p.summary)
+        assertEquals("bau-build/library-booking", p.repoFullName)
+        assertEquals("library-booking", p.repoName)
+        assertEquals("https://github.com/bau-build/library-booking", p.repoUrl)
+        assertEquals("https://github.com/bau-build/library-booking.git", p.cloneUrl)
+        assertEquals("CMPS433", p.classCode)
+        assertEquals(MembershipStatus.WaitingForApproval, p.membership)
+        assertTrue(p.repoConnected)
+        assertTrue(backend.callsTo("GET", "/v1/me/classes").isEmpty()) // class_code given: no lookup
+    }
+
+    @Test
+    fun membershipStatusMapsAndFallsBackToMyMembership() = runTest {
+        backend.on("GET", "/v1/projects/a", body = Fixtures.projectDetail(id = "a", membership = "joined"))
+        backend.on("GET", "/v1/projects/b", body = Fixtures.projectDetail(id = "b").trimEnd().removeSuffix("}") + """, "membership_status": "member"}""")
+        backend.on("GET", "/v1/projects/c", body = Fixtures.projectDetail(id = "c").trimEnd().removeSuffix("}") + """, "membership_status": "none"}""")
+        assertEquals(MembershipStatus.In, repo.project("a").membership)
+        assertEquals(MembershipStatus.In, repo.project("b").membership)
+        assertNull(repo.project("c").membership)
+    }
 }

@@ -19,6 +19,7 @@ import com.vesper.baubuild.data.http.staff.dto.InquiryDescription
 import com.vesper.baubuild.data.http.staff.dto.InquiryDto
 import com.vesper.baubuild.data.http.staff.dto.InquiryListDto
 import com.vesper.baubuild.data.http.staff.dto.MeDto
+import com.vesper.baubuild.data.http.staff.dto.StaffOverviewDto
 import com.vesper.baubuild.data.http.staff.dto.WorldProjectDto
 import com.vesper.baubuild.data.http.staff.dto.WorldProjectListDto
 import com.vesper.baubuild.data.http.staff.dto.deadlineToDueAt
@@ -60,17 +61,17 @@ import kotlinx.serialization.json.put
  * - [inquiries]        → `GET /v1/inquiries/mine` (`{items}`), preceded by on-device drafts
  * - [inquiry]          → `GET /v1/inquiries/{id}`
  * - [post]             → `POST /v1/inquiries` (backend status `submitted`; `department` from `GET /v1/me`)
- * - [updateDetails]    → `PATCH /v1/inquiries/{id}` (only while `submitted`)
- * - [cancel]           → `DELETE /v1/inquiries/{id}` (204; only while `submitted`; the row is gone afterwards)
- * - [worldProjects]    → `GET /v1/world-projects` (404 → empty list until it ships; the UI hides the section)
- * - [profile]          → `GET /v1/me` (+ `classes` codes from the same payload) and `GET /v1/inquiries/mine` for counts,
- *                        plus `GET /v1/senior-engineers` (PROPOSED; 404 → empty list, the UI hides the section)
+ * - [updateDetails]    → `PATCH /v1/inquiries/{id}` (while not cancelled; edits to a published one reach the project)
+ * - [cancel]           → `DELETE /v1/inquiries/{id}` before publishing, else `POST /v1/inquiries/{id}/cancel`
+ * - [overview]         → `GET /v1/staff/overview` (404 → computed from [inquiries])
+ * - [worldProjects]    → `GET /v1/world-projects` (404 → empty list; the UI hides the section)
+ * - [profile]          → `GET /v1/me` (title, department, `classes` codes) and `GET /v1/inquiries/mine` for counts,
+ *                        plus `GET /v1/senior-engineers` (404 → empty list, the UI hides the section)
  * - [seniorEngineer]   → `GET /v1/users/{id}` (public profile, exists), merged over the list item
  *
  * Backend gaps covered on the client (replace when the endpoints exist):
  * - [refine]           → CLIENT-SIDE FALLBACK [heuristicRefine]; wanted `POST /v1/staff/inquiries/refine`
  * - [saveDraft]        → kept in memory on this device; wanted `POST /v1/staff/inquiries/drafts`
- * - [overview]         → computed from [inquiries]; wanted `GET /v1/staff/overview`
  * - [resolveBlocker]   → no blockers/progress exist on the backend yet; returns the inquiry unchanged
  * - [updateNotifications] → in-memory prefs; wanted `PATCH /v1/staff/profile/notifications`
  *
@@ -196,9 +197,10 @@ class HttpStaffRepository(private val client: HttpClient) : StaffRepository {
     }
 
     /**
-     * The backend has no "cancelled" state: a submitted inquiry is withdrawn with `DELETE /v1/inquiries/{id}` and
-     * disappears from the list. Approved/published ones answer 409 `inquiry_locked`. The returned value is the
-     * last-known inquiry marked [InquiryStatus.Cancelled] so the screen can show the result.
+     * Not published yet (`status` submitted) → `DELETE /v1/inquiries/{id}` (204, the row is gone; the last-known
+     * inquiry is returned marked Cancelled · "Withdrawn"). Published → `POST /v1/inquiries/{id}/cancel`, which
+     * closes the project and returns the inquiry with `stage: cancelled` and `wasted_usd` (unpaid budget).
+     * 409 `inquiry_locked` when it is already cancelled or delivered.
      */
     override suspend fun cancel(id: String): StaffInquiry {
         if (isLocal(id)) {
@@ -211,9 +213,14 @@ class HttpStaffRepository(private val client: HttpClient) : StaffRepository {
             return removed.copy(status = InquiryStatus.Cancelled, latest = "Draft deleted")
         }
         val current = inquiry(id)
-        send(HttpMethod.Delete, "v1/inquiries/${id(id)}")
+        val result = if (current.canDelete) {
+            send(HttpMethod.Delete, "v1/inquiries/${id(id)}")
+            current.copy(status = InquiryStatus.Cancelled, latest = "Withdrawn", canDelete = false)
+        } else {
+            decodeInquiry(send(HttpMethod.Post, "v1/inquiries/${id(id)}/cancel"))
+        }
         DataChanges.inquiriesChanged()
-        return current.copy(status = InquiryStatus.Cancelled, latest = "Withdrawn")
+        return result
     }
 
     /** Backend gap: no progress/blockers yet, so there is nothing to resolve. Wanted `POST /v1/staff/inquiries/{id}/blockers/{bid}/resolve`. */
@@ -222,10 +229,25 @@ class HttpStaffRepository(private val client: HttpClient) : StaffRepository {
     // ---- overview / world projects -------------------------------------------------------------------------
 
     /**
-     * Computed on the client until `GET /v1/staff/overview` exists: raised = rewards of Done inquiries,
-     * wasted = rewards of Cancelled ones (0 today — withdrawn inquiries are deleted on the backend).
+     * `GET /v1/staff/overview` → `{raised_usd, wasted_usd, open, in_progress, delivered, needs_attention}`.
+     * Older servers (404) → computed from [inquiries]: raised = rewards of Done inquiries, wasted = unspent budget
+     * of Cancelled ones. The backend has no blockers yet, so "needs attention" is always empty from the endpoint.
      */
-    override suspend fun overview(): StaffOverview = computeOverview(inquiries())
+    override suspend fun overview(): StaffOverview {
+        val text = try {
+            send(HttpMethod.Get, "v1/staff/overview")
+        } catch (e: ApiException) {
+            if (e.status == 404) return computeOverview(inquiries()) else throw e
+        }
+        val dto = json.decodeFromString(StaffOverviewDto.serializer(), text)
+        return StaffOverview(
+            raisedUsd = dto.raisedUsd,
+            wastedUsd = dto.wastedUsd,
+            openCount = dto.open,
+            inProgressCount = dto.inProgress,
+            deliveredCount = dto.delivered,
+        )
+    }
 
     /**
      * `GET /v1/world-projects` — accepts `[...]` or `{items:[...]}`. Not live yet: 404 (route missing) → empty
@@ -267,7 +289,7 @@ class HttpStaffRepository(private val client: HttpClient) : StaffRepository {
         val (whenDone, whenJoins) = lock.withLock { notifyWhenDone to notifyWhenStudentJoins }
         return StaffProfile(
             department = me.department.orEmpty(),
-            title = when (me.role.lowercase()) {
+            title = me.title?.trim()?.takeIf { it.isNotEmpty() } ?: when (me.role.lowercase()) {
                 "admin" -> "Administrator"
                 else -> "Staff"
             },
@@ -353,7 +375,7 @@ class HttpStaffRepository(private val client: HttpClient) : StaffRepository {
 
         fun computeOverview(list: List<StaffInquiry>): StaffOverview = StaffOverview(
             raisedUsd = list.filter { it.status == InquiryStatus.Done }.sumOf { it.draft.priceUsd ?: 0 },
-            wastedUsd = list.filter { it.status == InquiryStatus.Cancelled }.sumOf { it.draft.priceUsd ?: 0 },
+            wastedUsd = list.filter { it.status == InquiryStatus.Cancelled }.sumOf { if (it.wastedUsd > 0) it.wastedUsd else it.draft.priceUsd ?: 0 },
             openCount = list.count { it.status.isOpen && it.status != InquiryStatus.InProgress },
             inProgressCount = list.count { it.status == InquiryStatus.InProgress },
             deliveredCount = list.count { it.status == InquiryStatus.Done },

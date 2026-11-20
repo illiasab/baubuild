@@ -4,14 +4,13 @@ import { session } from './session.js';
 export const DEVICE = Object.freeze({ platform: 'web', app_version: '1.0.0' });
 
 export class ApiError extends Error {
-  constructor({ status = 0, code = 'unknown', message = 'Something went wrong.', retryAfterS = null, resendAfterS = null, details = null } = {}) {
+  constructor({ status = 0, code = 'unknown', message = 'Something went wrong.', retryAfterS = null, details = null } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.message = message;
     this.retryAfterS = retryAfterS;
-    this.resendAfterS = resendAfterS;
     this.details = details;
   }
   get offline() { return this.code === 'network'; }
@@ -58,7 +57,6 @@ async function toError(res) {
     code: e.code || (typeof payload?.error === 'string' ? 'error' : `http_${res.status}`),
     message: e.message || (typeof payload?.error === 'string' ? payload.error : defaultMessage(res.status)),
     retryAfterS: retry,
-    resendAfterS: e.resend_after_s ?? payload?.resend_after_s ?? null,
     details: e,
   });
 }

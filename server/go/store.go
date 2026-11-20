@@ -214,6 +214,10 @@ func openDB(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrateGitHub(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := seed(db); err != nil {
 		db.Close()
 		return nil, err

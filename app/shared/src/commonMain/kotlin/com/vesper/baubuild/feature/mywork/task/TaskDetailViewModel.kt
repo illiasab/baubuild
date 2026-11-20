@@ -46,8 +46,12 @@ val ProjectTask.nextAction: TaskAction?
 
 data class TaskDetailUiState(
     val detail: LoadState<TaskDetail> = LoadState.Loading,
-    /** Indexes into [ProjectTask.acceptanceCriteria] the student ticked. Local only. */
+    /**
+     * Indexes into [ProjectTask.acceptanceCriteria] the student ticked. Seeded from the backend (`criteria_done`)
+     * and saved optimistically on each tick; a failed save reverts and sets [criteriaError].
+     */
     val checkedCriteria: Set<Int> = emptySet(),
+    val criteriaError: String? = null,
     val isUpdating: Boolean = false,
     val updateError: String? = null,
     /** The project has a GitHub repo and the app can code on it (Start Task creates a branch, Open Code). */
@@ -88,7 +92,7 @@ class TaskUpdateBus {
 
 /**
  * Task detail: loads the task from its project's workspace (there's no single-task endpoint yet), lets the
- * student tick acceptance criteria locally and move the task forward (Start → In Progress → Done).
+ * student tick acceptance criteria (saved to the backend) and move the task forward (Start → In Progress → Done).
  */
 class TaskDetailViewModel(
     private val repository: WorkRepository,
@@ -107,10 +111,25 @@ class TaskDetailViewModel(
     /** Start Task is waiting for GitHub to be connected. */
     private var pendingStart = false
 
+    /** Last ticks the server confirmed (revert target) and a counter so only the newest save's reply applies. */
+    private var confirmedCriteria: Set<Int> = emptySet()
+    private var criteriaSeq = 0
+    private var criteriaLoaded = false
+
     init {
         viewModelScope.launch {
             detail.collect { d ->
-                _state.update { it.copy(detail = d) }
+                val task = d.dataOrNull?.task
+                _state.update {
+                    // Seed the ticks from the server on first load; later reloads don't clobber in-flight ticks.
+                    if (task != null && !criteriaLoaded) {
+                        criteriaLoaded = true
+                        confirmedCriteria = task.criteriaDone
+                        it.copy(detail = d, checkedCriteria = task.criteriaDone)
+                    } else {
+                        it.copy(detail = d)
+                    }
+                }
                 syncCodeState()
             }
         }
@@ -141,13 +160,29 @@ class TaskDetailViewModel(
         }
     }
 
-    // TODO(backend): persist ticked criteria per task (e.g. `PUT /v1/projects/{id}/tasks/{taskId}/checklist`)
-    //  so they survive app restarts and sync across devices. For now they live as long as this ViewModel.
+    /** Ticks/unticks a criterion right away and saves it (`PATCH /v1/tasks/{id}` `criteria_done`); reverts on failure. */
     fun toggleCriterion(index: Int) {
         val count = _state.value.task?.acceptanceCriteria?.size ?: return
         if (index !in 0 until count) return
-        _state.update { s ->
-            s.copy(checkedCriteria = if (index in s.checkedCriteria) s.checkedCriteria - index else s.checkedCriteria + index)
+        val current = _state.value.checkedCriteria
+        val next = if (index in current) current - index else current + index
+        _state.update { it.copy(checkedCriteria = next, criteriaError = null) }
+        val seq = ++criteriaSeq
+        viewModelScope.launch {
+            try {
+                val saved = repository.updateTaskCriteria(projectId, taskId, next) ?: return@launch
+                confirmedCriteria = saved.criteriaDone
+                if (seq != criteriaSeq) return@launch
+                _state.update { it.copy(checkedCriteria = saved.criteriaDone) }
+                val d = detail.value.dataOrNull
+                if (d != null) detail.value = LoadState.Content(d.copy(task = d.task.copy(criteriaDone = saved.criteriaDone)))
+                updates.publish(TaskUpdate(projectId, saved))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                if (seq != criteriaSeq) return@launch
+                _state.update { it.copy(checkedCriteria = confirmedCriteria, criteriaError = "Couldn’t save that check. Try again.") }
+            }
         }
     }
 
@@ -268,5 +303,5 @@ class TaskDetailViewModel(
 
     fun onCodeOpened() = _state.update { it.copy(openCodeRequested = false) }
 
-    fun dismissError() = _state.update { it.copy(updateError = null) }
+    fun dismissError() = _state.update { it.copy(updateError = null, criteriaError = null) }
 }

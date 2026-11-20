@@ -300,7 +300,8 @@ private fun DetailOverlay(project: Project?, urgentIds: Set<String>, onClose: ()
                     val graph = AppGraph.current
                     val vm = viewModel { ProjectDetailViewModel(
                             p.id, graph.projectRepository, graph.session.state, seed = p,
-                            isGitHubConnected = { graph.gitHubRepository.account.value != null },
+                            // No "connect GitHub" prompt while `features.github` is off.
+                            isGitHubConnected = { !graph.gitHubEnabled || graph.gitHubRepository.account.value != null },
                         )
                     }
                     val state by vm.state.collectAsStateWithLifecycle()

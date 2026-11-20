@@ -6,6 +6,7 @@ import com.vesper.baubuild.core.session.InMemoryTokenStore
 import com.vesper.baubuild.core.session.SessionState
 import com.vesper.baubuild.core.session.SessionStore
 import com.vesper.baubuild.data.fake.FakeData
+import com.vesper.baubuild.data.http.config.FeatureFlags
 import com.vesper.baubuild.feature.profile.lead.BecomeLeadViewModel
 import com.vesper.baubuild.core.model.ReviewStageState
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,29 @@ class ProfileViewModelTest {
         advanceUntilIdle()
         assertEquals(ScoreTier.MAX_SCORE, vm.state.value.score)
         assertEquals(ScoreTier.Honored, vm.state.value.tier)
+    }
+
+    @Test fun gitHubOffHidesConnectAndNeverOpensIt() = runTest {
+        val session = SessionStore(InMemoryTokenStore()).apply { signedIn("t", FakeData.sam.copy(githubUsername = "samc")) }
+        val features = kotlinx.coroutines.flow.MutableStateFlow(FeatureFlags(mapOf("github" to false)))
+        val vm = ProfileViewModel(session, features = features)
+        advanceUntilIdle()
+        assertFalse(vm.state.value.gitHubEnabled)
+        assertEquals("samc", vm.state.value.gitHubLogin) // the saved username still shows
+        vm.openGitHub()
+        advanceUntilIdle()
+        assertFalse(vm.state.value.showingGitHub)
+
+        features.value = FeatureFlags(mapOf("github" to true)) // the server turns it on later
+        advanceUntilIdle()
+        assertTrue(vm.state.value.gitHubEnabled)
+        vm.openGitHub()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.showingGitHub)
+    }
+
+    @Test fun gitHubIsOffUntilTheConfigSaysOtherwise() {
+        assertFalse(FeatureFlags().github)
     }
 
     @Test fun followsSessionUpdates() = runTest {

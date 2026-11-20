@@ -60,7 +60,7 @@ import com.vesper.baubuild.designsystem.BauColors
 import com.vesper.baubuild.designsystem.BauSpacing
 
 /**
- * Layout shared by Log In, Sign Up, Verify Email and Forgot Password: a navy header with the brand mark and a back button
+ * Layout shared by Log In, Sign Up and Forgot Password: a navy header with the brand mark and a back button
  * (the welcome hero, shortened), then a scrolling paper body. Handles safe-area insets and the keyboard.
  */
 @Composable

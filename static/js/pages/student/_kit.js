@@ -179,6 +179,46 @@ export function githubUrl(repoName) {
   return `https://github.com/${name}`;
 }
 
+// owner/repo for a project or /changes payload: repo_full_name, then repo.full_name, then a repo name that already
+// has an owner (older servers). null when nothing usable.
+export function repoFullName(source) {
+  const candidates = [source?.repo_full_name, source?.repo?.full_name, typeof source?.repo === 'string' ? source.repo : source?.repo?.name];
+  for (const c of candidates) {
+    const name = str(c).trim().replace(/^\/+|\/+$/g, '');
+    if (/^[\w.-]+\/[\w.-]+$/.test(name)) return name;
+  }
+  return null;
+}
+
+// 'member' | 'pending_approval' | 'none' from membership_status, falling back to my_membership.status.
+export function membershipOf(project) {
+  const s = str(project?.membership_status);
+  if (s === 'member' || s === 'pending_approval' || s === 'none') return s;
+  const mine = str(project?.my_membership?.status);
+  if (mine === 'joined' || mine === 'member') return 'member';
+  if (mine === 'pending_approval' || mine === 'pending') return 'pending_approval';
+  return 'none';
+}
+
+// Card blurb: the server's one-line summary, else the description.
+export function summaryOf(project) {
+  return str(project?.summary).trim() || str(project?.description).trim();
+}
+
+// features.github from the public GET /v1/config, fetched once per page load. Any failure counts as "not set up",
+// so GitHub actions stay hidden rather than offering buttons that fail.
+let githubFlag = null;
+export const GITHUB_OFF_NOTE = 'GitHub isn’t connected for BAU BUILD yet.';
+export function githubEnabled(ctx) {
+  if (!githubFlag) {
+    githubFlag = Promise.resolve()
+      .then(() => ctx.api('/v1/config', { auth: false }))
+      .then((config) => config?.features?.github === true)
+      .catch(() => { githubFlag = null; return false; });
+  }
+  return githubFlag;
+}
+
 // Only http(s) links are ever put in an href.
 export function safeUrl(value) {
   try {

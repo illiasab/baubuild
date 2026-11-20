@@ -85,7 +85,8 @@ fun MyWorkTabRoot(modifier: Modifier = Modifier) {
                             viewModel = viewModel(key = route.key) {
                                 TaskDetailViewModel(
                                     AppGraph.current.workRepository, route.projectId, route.taskId,
-                                    github = AppGraph.current.gitHubRepository,
+                                    // Null while `features.github` is off: Start Task only sets the status.
+                                    github = AppGraph.current.gitHubOrNull(),
                                 )
                             },
                             onBack = { backStack.pop() },

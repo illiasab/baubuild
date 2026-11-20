@@ -6,6 +6,7 @@ import com.vesper.baubuild.core.model.Difficulty
 import com.vesper.baubuild.core.model.JoinPolicy
 import com.vesper.baubuild.core.model.Project
 import com.vesper.baubuild.core.model.ProjectTask
+import com.vesper.baubuild.core.model.TaskResource
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -60,6 +61,16 @@ internal data class TaskDto(
     /** `assigned` | `backlog`. */
     val lane: String? = null,
     @SerialName("due_at") val dueAt: String? = null,
+    // Newer backend: the task brief.
+    val description: String? = null,
+    @SerialName("acceptance_criteria") val acceptanceCriteria: List<String> = emptyList(),
+    /** `low` | `medium` | `high`. */
+    val priority: String? = null,
+    val resources: List<TaskResourceDto> = emptyList(),
+    /** Indexes into [acceptanceCriteria] the student ticked. */
+    @SerialName("criteria_done") val criteriaDone: List<Int> = emptyList(),
+    /** `yyyy-MM-dd`. */
+    @SerialName("due_date") val dueDate: String? = null,
 ) {
     fun toDomain(now: Instant) = ProjectTask(
         id = id,
@@ -68,29 +79,58 @@ internal data class TaskDto(
         dueInDays = dueAt?.let { Wire.dueInDays(it, now) },
         // The tasks endpoint only returns the caller's own tasks.
         assignedToMe = true,
-        dueDate = Wire.isoDate(dueAt),
+        description = description.orEmpty().trim(),
+        acceptanceCriteria = acceptanceCriteria.map { it.trim() }.filter { it.isNotEmpty() },
+        dueDate = dueDate?.takeIf { it.length >= 10 }?.take(10) ?: Wire.isoDate(dueAt),
+        priority = Wire.priority(priority),
+        resources = resources.mapNotNull { r ->
+            val url = r.url?.trim()?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: return@mapNotNull null
+            TaskResource(r.label?.trim()?.ifBlank { null } ?: url, url)
+        },
+        criteriaDone = criteriaDone.filter { it in acceptanceCriteria.indices }.toSet(),
     )
 }
 
 @Serializable
-internal data class TaskPatchDto(val status: String)
+internal data class TaskResourceDto(val label: String? = null, val url: String? = null)
+
+/** Body of `PATCH /v1/tasks/{id}`: `status` and/or `criteria_done` (omitted keys stay unchanged). */
+@Serializable
+internal data class TaskPatchDto(
+    val status: String? = null,
+    @SerialName("criteria_done") val criteriaDone: List<Int>? = null,
+)
 
 /** `GET /v1/projects/{id}/changes`. */
 @Serializable
 internal data class ChangesDto(
     val connected: Boolean = false,
     val repo: String? = null,
+    @SerialName("repo_full_name") val repoFullName: String? = null,
     val branches: List<BranchDto> = emptyList(),
     @SerialName("github_commits") val githubCommits: List<GitHubCommitDto> = emptyList(),
 ) {
     fun toDomain(): List<CodeChange> {
         val submitted = branches.flatMap { branch ->
-            branch.commits.map { CodeChange(it.id, it.message ?: branch.name, branch.name, Wire.changeStatus(it.state)) }
+            branch.commits.map {
+                CodeChange(
+                    id = it.id,
+                    title = it.message?.lineSequence()?.firstOrNull()?.trim()?.ifBlank { null } ?: branch.name,
+                    branch = it.branch?.ifBlank { null } ?: branch.name,
+                    status = Wire.changeStatus(it.status ?: it.state),
+                    sha = it.sha?.ifBlank { null },
+                    url = (it.url ?: it.diffUrl)?.ifBlank { null },
+                )
+            }
         }
         val pushed = githubCommits.mapNotNull { commit ->
             val sha = commit.sha ?: return@mapNotNull null
             // GitHub lists the default branch's commits; the response doesn't name the branch.
-            CodeChange(sha, commit.message?.lineSequence()?.firstOrNull().orEmpty().ifBlank { sha.take(7) }, sha.take(7), ChangeStatus.Pushed)
+            CodeChange(
+                sha, commit.message?.lineSequence()?.firstOrNull().orEmpty().ifBlank { sha.take(7) }, sha.take(7), ChangeStatus.Pushed,
+                sha = sha,
+                url = commit.url ?: repoFullName?.takeIf { '/' in it }?.let { "https://github.com/$it/commit/$sha" },
+            )
         }
         return submitted + pushed
     }
@@ -109,6 +149,11 @@ internal data class BranchCommitDto(
     val message: String? = null,
     /** `pending` | `approved` | `sent_back`. */
     val state: String? = null,
+    /** Newer backend: `with_dev_lead` | `approved` | `changes_requested`. */
+    val status: String? = null,
+    val sha: String? = null,
+    val branch: String? = null,
+    val url: String? = null,
     @SerialName("diff_url") val diffUrl: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
 )
@@ -212,11 +257,23 @@ internal data class UserDto(
     val skills: List<String> = emptyList(),
     val classes: List<String> = emptyList(),
     val email: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+    val title: String? = null,
+    @SerialName("github_username") val githubUsername: String? = null,
+    val roles: List<String> = emptyList(),
 )
 
-/** Body of `PATCH /v1/me` (the backend accepts only these two; omitted keys are left unchanged). */
+/**
+ * Body of `PATCH /v1/me`. Omitted (null) keys are left unchanged. `bio` may be empty (clears it);
+ * `github_username` `""` clears it; `title` is accepted for staff only (403 `role_required` otherwise).
+ */
 @Serializable
 internal data class UpdateMeDto(
+    @SerialName("display_name") val displayName: String? = null,
     val bio: String? = null,
     val skills: List<String>? = null,
+    @SerialName("github_username") val githubUsername: String? = null,
+    val department: String? = null,
+    val title: String? = null,
 )

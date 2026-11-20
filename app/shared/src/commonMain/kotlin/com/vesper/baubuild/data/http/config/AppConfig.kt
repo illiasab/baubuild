@@ -51,7 +51,7 @@ data class AppConfig(
 
 /**
  * Feature flags from `GET /v1/config`. Unknown or missing flags use [DEFAULTS] (fail open: features that work
- * without the backend's say-so stay on; paid features stay off).
+ * without the backend's say-so stay on; paid features and GitHub — not set up on production — stay off).
  */
 data class FeatureFlags(val values: Map<String, Boolean> = emptyMap()) {
     operator fun get(name: String): Boolean = values[name] ?: DEFAULTS[name] ?: false
@@ -62,7 +62,7 @@ data class FeatureFlags(val values: Map<String, Boolean> = emptyMap()) {
     val push: Boolean get() = this["push"]
 
     companion object {
-        val DEFAULTS = mapOf("billing" to false, "mentor" to true, "github" to true, "push" to true)
+        val DEFAULTS = mapOf("billing" to false, "mentor" to true, "github" to false, "push" to true)
     }
 }
 

@@ -58,6 +58,9 @@ fun gitHubNewTokenUrl(): String =
         "&contents=write&pull_requests=write&metadata=read"
 
 /** `https://github.com/<owner>/<repo>.git` for "Prefer your own editor?". */
+/** Shown instead of GitHub buttons while `features.github` is off on the server (`GET /v1/config`). */
+const val GITHUB_OFF_NOTE = "GitHub isn’t connected for BAU BUILD yet"
+
 fun gitHubCloneUrl(repoFullName: String): String = "https://github.com/${repoFullName.trim().trim('/')}.git"
 
 internal const val GitHubWhy = "Code and commit to your project's repository right from BAU BUILD."

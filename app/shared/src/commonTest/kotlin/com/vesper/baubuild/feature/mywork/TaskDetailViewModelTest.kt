@@ -36,15 +36,32 @@ import kotlin.test.assertTrue
 /** Keeps per-task status in memory like the fake backend, with a switch to fail writes. */
 private class TaskRepo : WorkRepository {
     var failUpdates = false
+    var failCriteria = false
+    /** Null = this repository can't persist ticks (like an older fake). */
+    var persistCriteria = true
     val writes = mutableListOf<Pair<String, TaskStatus>>()
+    val criteriaWrites = mutableListOf<Set<Int>>()
     private val statuses = mutableMapOf<String, TaskStatus>()
+    private val criteria = mutableMapOf<String, Set<Int>>()
 
     override suspend fun myWork(): List<Membership> = emptyList()
     override suspend fun reviews(): List<ReviewStatus> = emptyList()
 
     override suspend fun workspace(projectId: String): Workspace {
         val base = FakeData.workspace(projectId)
-        return base.copy(tasks = base.tasks.map { t -> statuses[t.id]?.let { t.copy(status = it) } ?: t })
+        return base.copy(
+            tasks = base.tasks.map { t ->
+                (statuses[t.id]?.let { t.copy(status = it) } ?: t).let { c -> criteria[t.id]?.let { c.copy(criteriaDone = it) } ?: c }
+            },
+        )
+    }
+
+    override suspend fun updateTaskCriteria(projectId: String, taskId: String, criteriaDone: Set<Int>): ProjectTask? {
+        if (!persistCriteria) return null
+        if (failCriteria) error("offline")
+        criteriaWrites += criteriaDone
+        criteria[taskId] = criteriaDone
+        return workspace(projectId).tasks.first { it.id == taskId }
     }
 
     override suspend fun updateTaskStatus(projectId: String, taskId: String, status: TaskStatus): ProjectTask {
@@ -137,6 +154,41 @@ class TaskDetailViewModelTest {
         vm.toggleCriterion(4)
         vm.toggleCriterion(-1)
         assertEquals(setOf(2), vm.state.value.checkedCriteria)
+    }
+
+    @Test fun ticksArePersistedAndSeededFromTheServer() = runTest(dispatcher) {
+        val repo = TaskRepo()
+        val vm = TaskDetailViewModel(repo, project, "t1", TaskUpdateBus())
+        advanceUntilIdle()
+        vm.toggleCriterion(1)
+        assertEquals(setOf(1), vm.state.value.checkedCriteria) // optimistic
+        advanceUntilIdle()
+        assertEquals(listOf(setOf(1)), repo.criteriaWrites)
+        assertEquals(setOf(1), vm.state.value.task?.criteriaDone)
+
+        // A new screen for the same task starts from what the server saved.
+        val again = TaskDetailViewModel(repo, project, "t1", TaskUpdateBus())
+        advanceUntilIdle()
+        assertEquals(setOf(1), again.state.value.checkedCriteria)
+    }
+
+    @Test fun failedTickRevertsAndShowsError() = runTest(dispatcher) {
+        val repo = TaskRepo()
+        val vm = TaskDetailViewModel(repo, project, "t1", TaskUpdateBus())
+        advanceUntilIdle()
+        vm.toggleCriterion(0)
+        advanceUntilIdle()
+        repo.failCriteria = true
+        vm.toggleCriterion(2)
+        assertEquals(setOf(0, 2), vm.state.value.checkedCriteria)
+        advanceUntilIdle()
+        assertEquals(setOf(0), vm.state.value.checkedCriteria) // back to the last saved ticks
+        assertNotNull(vm.state.value.criteriaError)
+        repo.failCriteria = false
+        vm.toggleCriterion(2)
+        advanceUntilIdle()
+        assertNull(vm.state.value.criteriaError)
+        assertEquals(setOf(0, 2), vm.state.value.checkedCriteria)
     }
 
     @Test fun workspaceListReflectsStatusChange() = runTest(dispatcher) {

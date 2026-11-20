@@ -23,7 +23,6 @@ import com.vesper.baubuild.feature.auth.desktop.DesktopForgotPassword
 import com.vesper.baubuild.feature.auth.desktop.DesktopLogin
 import com.vesper.baubuild.feature.auth.desktop.DesktopNotAllowed
 import com.vesper.baubuild.feature.auth.desktop.DesktopSignUp
-import com.vesper.baubuild.feature.auth.desktop.DesktopVerifyEmail
 import com.vesper.baubuild.feature.auth.desktop.DesktopWelcome
 import com.vesper.baubuild.shell.usesPortalLayout
 
@@ -39,15 +38,13 @@ private class AuthViewModels(
     val nav: AuthViewModel,
     val signUp: SignUpViewModel,
     val login: LoginViewModel,
-    val verify: VerifyEmailViewModel,
 )
 
 /**
  * Entry point for this feature. Hosted by the Compose tab shell and by the native iOS TabView.
  * In-auth navigation: Welcome → Log In / Sign Up, and Forgot Password (a "ask support" card — no email is sent).
  * Log In ⇄ Sign Up links pop back to an existing entry instead of stacking; system back (Android back, iOS
- * edge-swipe, desktop Esc) pops. Sign Up and Log In store the session and the shell leaves this root. Verify Email
- * is only reached against a legacy server that still answers register with 202 / login with email_not_verified.
+ * edge-swipe, desktop Esc) pops. Sign Up and Log In store the session and the shell leaves this root.
  *
  * Desktop ([usesPortalLayout]) renders the same flow in the website layout ([DesktopAuthFrame]: dark brand panel +
  * form card); only the card changes between screens. Mobile renders the full-screen phone layouts.
@@ -64,12 +61,8 @@ fun AuthRoot(modifier: Modifier = Modifier) {
         nav = vm,
         signUp = viewModel { SignUpViewModel(AppGraph.current.authRepository, AppGraph.current.policy, vm) },
         login = viewModel { LoginViewModel(AppGraph.current.authRepository, AppGraph.current.policy, vm) },
-        verify = viewModel { VerifyEmailViewModel(AppGraph.current.authRepository) },
     )
     val state by vm.state.collectAsStateWithLifecycle()
-
-    // Verify Email restarts (code, countdown) for every new request; the same one survives recomposition / rotation.
-    LaunchedEffect(state.verification) { state.verification?.let(vms.verify::start) }
 
     val blocked = state.status.takeIf { state.isBlocked }
     val content: AuthContent = if (blocked != null) AuthContent.Blocked(blocked) else AuthContent.Flow(state.screen, state.backStack.size)
@@ -174,21 +167,6 @@ private fun AuthContentHost(
                             onSubmit = s::submit,
                             onLogIn = onLogIn,
                             onBack = onBack,
-                        )
-                    }
-                }
-                AuthScreen.VerifyEmail -> {
-                    val verify by vms.verify.state.collectAsStateWithLifecycle()
-                    val v = vms.verify
-                    if (desktop) {
-                        DesktopVerifyEmail(verify, v::onCodeChange, v::submit, v::resend, onBack)
-                    } else {
-                        VerifyEmailScreen(
-                            state = verify,
-                            onCodeChange = v::onCodeChange,
-                            onSubmit = v::submit,
-                            onResend = v::resend,
-                            onChangeEmail = onBack,
                         )
                     }
                 }

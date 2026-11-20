@@ -12,6 +12,7 @@ import com.vesper.baubuild.core.model.InquiryPriority
 import com.vesper.baubuild.core.model.ProjectType
 import com.vesper.baubuild.core.model.RewardType
 import com.vesper.baubuild.core.model.StaffInquiry
+import com.vesper.baubuild.core.network.ApiException
 import com.vesper.baubuild.data.repository.StaffRepository
 import com.vesper.baubuild.feature.staff.inquiries.IsoDate
 import kotlinx.coroutines.CancellationException
@@ -207,7 +208,13 @@ class InquiryDetailViewModel(
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
-                editor.update { it.copy(isSaving = false, saveError = "Couldn’t save. Check your connection and try again.") }
+                val message = if (t is ApiException && t.code == "inquiry_locked") {
+                    refresh(force = true)
+                    "This inquiry was cancelled, so its details can’t be changed."
+                } else {
+                    "Couldn’t save. Check your connection and try again."
+                }
+                editor.update { it.copy(isSaving = false, saveError = message) }
             }
         }
     }
@@ -250,7 +257,13 @@ class InquiryDetailViewModel(
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
-                actions.update { it.copy(isCancelling = false, cancelError = "Couldn’t cancel the inquiry. Try again.") }
+                val message = if (t is ApiException && t.code == "inquiry_locked") {
+                    refresh(force = true)
+                    t.message?.takeIf { it.isNotBlank() } ?: "This inquiry can’t be cancelled any more."
+                } else {
+                    "Couldn’t cancel the inquiry. Try again."
+                }
+                actions.update { it.copy(isCancelling = false, cancelError = message) }
             }
         }
     }

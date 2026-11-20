@@ -37,7 +37,7 @@ class InMemoryTokenStore : TokenStore {
 }
 
 /**
- * The backend's opaque token pair (`POST /v1/auth/login`, `verify-email`, `password/reset`, `POST /v1/auth/refresh`).
+ * The backend's opaque token pair (`POST /v1/auth/register`, `POST /v1/auth/login`, `POST /v1/auth/refresh`).
  * [refreshToken] is null for legacy sessions and tests; [expiresAtMillis] (epoch ms) is null when unknown.
  */
 @Serializable

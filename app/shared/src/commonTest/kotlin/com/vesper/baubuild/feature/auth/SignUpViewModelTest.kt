@@ -94,19 +94,28 @@ class SignUpViewModelTest : ViewModelTest() {
         runCurrent()
         assertFalse(vm.state.value.submitting)
         assertNull(vm.state.value.error)
-        assertTrue(nav.verifications.isEmpty())
         assertEquals(listOf("register:sam.carter@stu.bau.edu"), repo.calls)
     }
 
     @Test
-    fun legacyVerificationRequiredOpensVerifyEmail() = test {
+    fun replyWithoutTokensShowsGenericError() = test {
         val vm = vm()
         vm.fillValid()
-        repo.nextRegister = AuthOutcome.VerificationRequired("sam.carter@stu.bau.edu", 30)
+        repo.nextRegister = AuthOutcome.NotCreated
         vm.submit()
         runCurrent()
         assertFalse(vm.state.value.submitting)
-        assertEquals<List<Pair<String, Long?>>>(listOf("sam.carter@stu.bau.edu" to 30L), nav.verifications)
+        assertEquals("Couldn’t create the account. Try again.", vm.state.value.error)
+    }
+
+    @Test
+    fun reservedAccountExplainsAdminActivation() = test {
+        val vm = vm()
+        vm.fillValid()
+        repo.nextRegister = AuthOutcome.AccountReserved
+        vm.submit()
+        runCurrent()
+        assertEquals("This account is reserved. Ask a BAU BUILD admin to activate it.", vm.state.value.error)
     }
 
     @Test
@@ -117,7 +126,6 @@ class SignUpViewModelTest : ViewModelTest() {
         vm.submit()
         advanceUntilIdle()
         assertTrue(vm.state.value.emailTaken)
-        assertTrue(nav.verifications.isEmpty())
         vm.onEmailChange("sam.c@stu.bau.edu")
         assertFalse(vm.state.value.emailTaken)
     }

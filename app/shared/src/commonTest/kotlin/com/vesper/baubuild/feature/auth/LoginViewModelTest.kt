@@ -62,15 +62,6 @@ class LoginViewModelTest : ViewModelTest() {
     }
 
     @Test
-    fun unverifiedAccountGoesToVerifyEmail() = test {
-        repo.addAccount("new@stu.bau.edu", "buildit42", verified = false)
-        fill("new@stu.bau.edu", "buildit42")
-        vm.submit(); advanceUntilIdle()
-        assertEquals<List<Pair<String, Long?>>>(listOf("new@stu.bau.edu" to FakeAuthRepository.RESEND_AFTER), nav.verifications)
-        assertEquals<String?>(null, vm.state.value.error)
-    }
-
-    @Test
     fun lockoutShowsMinutesToWait() = test {
         fill("sam@stu.bau.edu", "x")
         repo.nextLogin = AuthOutcome.TooManyAttempts(retryAfterSeconds = 840)

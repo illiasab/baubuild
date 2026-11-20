@@ -40,6 +40,7 @@ import com.vesper.baubuild.core.model.User
 import com.vesper.baubuild.designsystem.*
 import com.vesper.baubuild.di.AppGraph
 import com.vesper.baubuild.feature.github.ConnectGitHubScreen
+import com.vesper.baubuild.feature.github.GITHUB_OFF_NOTE
 import com.vesper.baubuild.feature.profile.edit.EditProfileScreen
 import com.vesper.baubuild.feature.profile.lead.BecomeLeadScreen
 import com.vesper.baubuild.feature.review.cardShadow
@@ -49,7 +50,10 @@ import com.vesper.baubuild.feature.review.cardShadow
 @Composable
 fun ProfileTabRoot(modifier: Modifier = Modifier) {
     val vm = viewModel {
-        ProfileViewModel(AppGraph.current.session, { com.vesper.baubuild.feature.auth.signOut() }, AppGraph.current.gitHubRepository.account)
+        ProfileViewModel(
+            AppGraph.current.session, { com.vesper.baubuild.feature.auth.signOut() }, AppGraph.current.gitHubRepository.account,
+            AppGraph.current.appConfigRepository.features,
+        )
     }
     val state by vm.state.collectAsStateWithLifecycle()
     BackHandler(enabled = state.showingLead) { vm.closeBecomeLead() }
@@ -60,7 +64,7 @@ fun ProfileTabRoot(modifier: Modifier = Modifier) {
         // Edit Profile owns its back handling (asks before discarding edits).
         state.editingProfile -> EditProfileScreen(
             onClose = vm::closeEditProfile, instanceKey = state.editSession, modifier = modifier,
-            connectedGitHubLogin = state.gitHubAccount?.login, onManageGitHub = vm::openGitHub,
+            connectedGitHubLogin = state.gitHubAccount?.login?.takeIf { state.gitHubEnabled }, onManageGitHub = vm::openGitHub,
         )
         else -> ProfileScreen(
             state, onBecomeLead = vm::openBecomeLead, onSignOut = vm::signOut,
@@ -108,12 +112,22 @@ internal fun ProfileScreen(
                     DetailRow("Skills", user.skills.joinToString().ifBlank { "None yet" }),
                     DetailRow("Classes", user.classCodes.joinToString().ifBlank { "None yet" }),
                     state.gitHubLogin.let { login ->
-                        if (login != null) DetailRow("GitHub", "@$login", onClick = onGitHub, clickLabel = "Manage GitHub")
-                        else DetailRow("GitHub", "Connect", onClick = onGitHub, clickLabel = "Connect GitHub", isAction = true)
+                        when {
+                            // GitHub isn't set up on the server: show the saved username only, no actions.
+                            !state.gitHubEnabled -> DetailRow("GitHub", login?.let { "@$it" } ?: "Not set up")
+                            login != null -> DetailRow("GitHub", "@$login", onClick = onGitHub, clickLabel = "Manage GitHub")
+                            else -> DetailRow("GitHub", "Connect", onClick = onGitHub, clickLabel = "Connect GitHub", isAction = true)
+                        }
                     },
                     DetailRow("Role", user.role.label),
                 ),
             )
+            if (!state.gitHubEnabled) {
+                Text(
+                    "$GITHUB_OFF_NOTE.", modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    fontSize = 13.sp, lineHeight = 18.sp, color = BauColors.TextSecondary,
+                )
+            }
             if (state.canBecomeLead) {
                 BauPrimaryButton("Become a Lead", onClick = onBecomeLead, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp))
             }

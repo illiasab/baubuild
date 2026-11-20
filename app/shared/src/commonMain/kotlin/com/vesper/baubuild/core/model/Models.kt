@@ -26,6 +26,11 @@ data class User(
     /** Profile photo URL (backend-hosted). Null → initials avatar. */
     val avatarUrl: String? = null,
     val githubUsername: String? = null,
+    /** Staff job title ("Professor", "Lecturer"…); null for students or when unset. */
+    val title: String? = null,
+    val department: String? = null,
+    /** Backend roles: primary role plus extras such as `interviewer`, `senior_engineer`. */
+    val roles: List<String> = emptyList(),
 ) {
     val firstName: String get() = displayName.substringBefore(' ')
     val initials: String
@@ -78,7 +83,15 @@ data class Project(
     /** Set when this project belongs to a class the student is enrolled in. */
     val classCode: String? = null,
     val taskCount: Int = 0,
-)
+    /** The viewer's membership from the backend (`membership_status`): null = not a member and no request. */
+    val membership: MembershipStatus? = null,
+) {
+    /** `https://github.com/owner/name` when the repo is known. */
+    val repoUrl: String? get() = repoFullName?.trim()?.trim('/')?.takeIf { '/' in it }?.let { "https://github.com/$it" }
+
+    /** `https://github.com/owner/name.git`. */
+    val cloneUrl: String? get() = repoUrl?.let { "$it.git" }
+}
 
 /** A request from BAU staff (@bau.edu) for a project to be built. Urgent ones appear at the top of Projects. */
 @Serializable
@@ -142,6 +155,8 @@ data class ProjectTask(
     val dueDate: String? = null,
     val priority: TaskPriority = TaskPriority.Medium,
     val resources: List<TaskResource> = emptyList(),
+    /** Indexes into [acceptanceCriteria] the student ticked (persisted on the backend). */
+    val criteriaDone: Set<Int> = emptySet(),
 )
 
 @Serializable
@@ -159,6 +174,10 @@ data class CodeChange(
     val title: String,
     val branch: String,
     val status: ChangeStatus,
+    /** Commit sha, when the client sent one with the submission (or GitHub listed it). */
+    val sha: String? = null,
+    /** GitHub link for this change (commit or compare view). */
+    val url: String? = null,
 )
 
 @Serializable

@@ -176,8 +176,7 @@ private suspend fun latency() = delay(350)
 
 /**
  * In-memory stand-in for the backend's email + password accounts. Applies [AccountPolicy] like the real backend
- * (only BAU domains), keeps accounts with a verified flag, issues the fixed code [CODE] and stores the session in
- * [session] whenever "tokens" come back. Tests can force any outcome with the `next*` overrides and inspect [calls].
+ * (only BAU domains), keeps accounts and stores the session in [session] whenever "tokens" come back. Tests can force any outcome with the `next*` overrides and inspect [calls].
  */
 class FakeAuthRepository(
     private val policy: AccountPolicy = AccountPolicy(),
@@ -190,11 +189,7 @@ class FakeAuthRepository(
     val calls = mutableListOf<String>()
 
     var nextRegister: RegisterResult? = null
-    var nextVerify: VerifyEmailResult? = null
-    var nextResend: CodeRequestResult? = null
     var nextLogin: LoginResult? = null
-    var nextForgot: CodeRequestResult? = null
-    var nextReset: ResetPasswordResult? = null
     /** Thrown by the next call (e.g. a network failure). */
     var nextError: Exception? = null
 
@@ -219,45 +214,12 @@ class FakeAuthRepository(
         return signIn(email) // no email: registration signs in directly
     }
 
-    override suspend fun verifyEmail(email: String, code: String): VerifyEmailResult {
-        step("verify:$email:$code")
-        nextVerify?.let { nextVerify = null; return it }
-        val account = accounts[email.lowercase()] ?: return AuthOutcome.InvalidCode
-        if (code != CODE) return AuthOutcome.InvalidCode
-        account.verified = true
-        return signIn(account.email)
-    }
-
-    override suspend fun resendCode(email: String, purpose: CodePurpose): CodeRequestResult {
-        step("resend:${purpose.wire}:$email")
-        nextResend?.let { nextResend = null; return it }
-        return AuthOutcome.CodeSent(RESEND_AFTER)
-    }
-
     override suspend fun login(email: String, password: String): LoginResult {
         step("login:$email")
         nextLogin?.let { nextLogin = null; return it }
         if (policy.access(email) != AccountPolicy.Access.Free) return AuthOutcome.DomainNotAllowed
         val account = accounts[email.lowercase()]
         if (account == null || account.password != password) return AuthOutcome.InvalidCredentials
-        if (!account.verified) return AuthOutcome.VerificationRequired(email, RESEND_AFTER)
-        return signIn(account.email)
-    }
-
-    override suspend fun forgotPassword(email: String): CodeRequestResult {
-        step("forgot:$email")
-        nextForgot?.let { nextForgot = null; return it }
-        return AuthOutcome.NotAvailable // no email: support resets passwords
-    }
-
-    override suspend fun resetPassword(email: String, code: String, newPassword: String): ResetPasswordResult {
-        step("reset:$email:$code")
-        nextReset?.let { nextReset = null; return it }
-        if (code != CODE) return AuthOutcome.InvalidCode
-        if (!com.vesper.baubuild.core.model.PasswordCheck.of(newPassword).isValid) return AuthOutcome.WeakPassword
-        val account = accounts[email.lowercase()] ?: return AuthOutcome.InvalidCode
-        account.password = newPassword
-        account.verified = true
         return signIn(account.email)
     }
 
@@ -289,8 +251,6 @@ class FakeAuthRepository(
     }
 
     companion object {
-        const val CODE = "123456"
-        const val RESEND_AFTER = 30L
         private const val FAKE_TOKEN_PREFIX = "fake-opaque-token:"
 
         /** The fake's opaque token for [email]. */

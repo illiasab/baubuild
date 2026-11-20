@@ -24,6 +24,7 @@ import com.vesper.baubuild.designsystem.UserAvatar
 import com.vesper.baubuild.feature.profile.edit.rememberEditProfileViewModel
 import com.vesper.baubuild.feature.profile.edit.ConnectedGitHub
 import com.vesper.baubuild.feature.github.ConnectGitHubDialog
+import com.vesper.baubuild.feature.github.GITHUB_OFF_NOTE
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +55,10 @@ import com.vesper.baubuild.feature.review.portal.*
 @Composable
 fun ProfilePortalPage(modifier: Modifier = Modifier) {
     val profileVm = viewModel {
-        ProfileViewModel(AppGraph.current.session, { com.vesper.baubuild.feature.auth.signOut() }, AppGraph.current.gitHubRepository.account)
+        ProfileViewModel(
+            AppGraph.current.session, { com.vesper.baubuild.feature.auth.signOut() }, AppGraph.current.gitHubRepository.account,
+            AppGraph.current.appConfigRepository.features,
+        )
     }
     val leadVm = viewModel { BecomeLeadViewModel() }
     val profile by profileVm.state.collectAsStateWithLifecycle()
@@ -79,11 +83,11 @@ fun ProfilePortalPage(modifier: Modifier = Modifier) {
         val editVm = rememberEditProfileViewModel("portal-$editSession")
         EditProfileDialog(
             editVm, onClose = { editing = false },
-            connectedGitHub = profile.gitHubAccount?.let { ConnectedGitHub(it.login, onManage = openGitHub) },
+            connectedGitHub = profile.gitHubAccount?.takeIf { profile.gitHubEnabled }?.let { ConnectedGitHub(it.login, onManage = openGitHub) },
         )
     }
     // Opened from the GitHub row or from Edit profile → Manage (stacks above the editor).
-    if (connectingGitHub) ConnectGitHubDialog(onDismiss = { connectingGitHub = false })
+    if (connectingGitHub && profile.gitHubEnabled) ConnectGitHubDialog(onDismiss = { connectingGitHub = false })
 }
 
 /** Below this content width the two columns stack (design: 460 + 20 + 340). */
@@ -113,7 +117,7 @@ internal fun ProfilePortalContent(
         ) {
             val left: @Composable ColumnScope.() -> Unit = {
                 IdentityCard(user, onEditProfile)
-                ProfessionalCard(user, profile.gitHubAccount?.login, onConnectGithub = onConnectGitHub)
+                ProfessionalCard(user, profile.gitHubAccount?.login, onConnectGithub = onConnectGitHub, gitHubEnabled = profile.gitHubEnabled)
                 if (profile.canBecomeLead) BecomeLeadCard(lead, onStartExam)
                 SignOutBlock(profile, onSignOut)
             }
@@ -155,8 +159,8 @@ private fun IdentityCard(user: User, onEditProfile: () -> Unit) {
 }
 
 @Composable
-private fun ProfessionalCard(user: User, gitHubLogin: String?, onConnectGithub: () -> Unit) {
-    val rows = professionalRows(user, gitHubLogin)
+private fun ProfessionalCard(user: User, gitHubLogin: String?, onConnectGithub: () -> Unit, gitHubEnabled: Boolean = true) {
+    val rows = professionalRows(user, gitHubLogin, gitHubEnabled)
     PortalCard(Modifier.fillMaxWidth(), padding = 0.dp) {
         PortalCardStrip("PROFESSIONAL")
         rows.forEachIndexed { i, row ->
@@ -198,7 +202,7 @@ internal data class ProfessionalRow(
  * Skills / Classes / GitHub / Role rows. Empty lists read "None yet", like the mobile Profile.
  * GitHub reads "Connected" only for the token-connected account's [gitHubLogin]; a saved username alone offers Connect.
  */
-internal fun professionalRows(user: User, gitHubLogin: String? = null): List<ProfessionalRow> {
+internal fun professionalRows(user: User, gitHubLogin: String? = null, gitHubEnabled: Boolean = true): List<ProfessionalRow> {
     // "Connected" only for a live token connection; a saved username alone still offers Connect.
     val connected = gitHubLogin?.trim()?.removePrefix("@").orEmpty()
     val saved = user.githubUsername?.trim()?.removePrefix("@").orEmpty()
@@ -206,6 +210,8 @@ internal fun professionalRows(user: User, gitHubLogin: String? = null): List<Pro
         ProfessionalRow("Skills", user.skills.joinToString().ifBlank { "None yet" }),
         ProfessionalRow("Classes", user.classCodes.joinToString().ifBlank { "None yet" }),
         when {
+            // `features.github` off: no Connect / Manage, just the saved username and a quiet note.
+            !gitHubEnabled -> ProfessionalRow("GitHub", (if (saved.isNotEmpty()) "@$saved · " else "") + GITHUB_OFF_NOTE)
             connected.isNotEmpty() -> ProfessionalRow("GitHub", "Connected · @$connected", manageAction = true)
             saved.isNotEmpty() -> ProfessionalRow("GitHub", "@$saved · Not connected", connectAction = true)
             else -> ProfessionalRow("GitHub", "Not connected", connectAction = true)

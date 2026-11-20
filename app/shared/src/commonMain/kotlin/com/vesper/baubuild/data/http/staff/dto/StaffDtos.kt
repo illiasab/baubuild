@@ -34,6 +34,11 @@ data class InquiryDto(
     val status: String = "submitted",
     @SerialName("project_id") val projectId: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
+    /** Newer backend: `draft | open | in_progress | delivered | cancelled` (derived from the inquiry + its project). */
+    val stage: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("cancelled_at") val cancelledAt: String? = null,
+    @SerialName("wasted_usd") val wastedUsd: Int = 0,
 )
 
 /** `GET /v1/inquiries/mine` → `{ "items": [...] }`. */
@@ -68,9 +73,22 @@ data class MeDto(
     val role: String = "",
     val department: String? = null,
     val classes: List<String> = emptyList(),
+    /** "Professor", "Lecturer"… (staff only). */
+    val title: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
 )
 
-/** One idea from `GET /v1/world-projects` (endpoint not live yet; shape proposed by the app). */
+/** `GET /v1/staff/overview`. */
+@Serializable
+data class StaffOverviewDto(
+    @SerialName("raised_usd") val raisedUsd: Int = 0,
+    @SerialName("wasted_usd") val wastedUsd: Int = 0,
+    val open: Int = 0,
+    @SerialName("in_progress") val inProgress: Int = 0,
+    val delivered: Int = 0,
+)
+
+/** One idea from `GET /v1/world-projects` (`{items:[{id,title,summary,organization,project_types,url}]}`). */
 @Serializable
 data class WorldProjectDto(
     val id: String = "",
@@ -78,6 +96,8 @@ data class WorldProjectDto(
     val summary: String? = null,
     val description: String? = null,
     val organization: String = "",
+    @SerialName("project_types") val projectTypes: List<String> = emptyList(),
+    /** Older proposal of the same field. */
     val types: List<String> = emptyList(),
     val url: String? = null,
 )

@@ -149,6 +149,9 @@ func (a *app) route(r *http.Request) (int, any, string, error) {
 		}
 		return status, nil, "HTML\n" + page, nil
 	}
+	if status, body, ok, err := a.githubRoutes(r, path); ok {
+		return status, body, "", err
+	}
 	if r.Method == http.MethodGet && path == "/v1/integrations/github/callback" {
 		status, body, err := a.githubCallback(r.URL.Query())
 		return status, body, "", err
@@ -314,7 +317,11 @@ func (a *app) handle(tx *sql.Tx, r *http.Request, path string, user, session map
 		}
 		items := []any{}
 		for _, row := range rows {
-			items = append(items, taskJSON(row))
+			item, err := withBranch(tx, taskJSON(row))
+			if err != nil {
+				return 0, nil, err
+			}
+			items = append(items, item)
 		}
 		return 200, map[string]any{"items": items}, nil
 	case r.Method == http.MethodPost && projectAction.MatchString(path):

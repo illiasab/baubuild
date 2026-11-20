@@ -37,7 +37,7 @@ import com.vesper.baubuild.designsystem.BauTextLink
 
 /**
  * Sign Up: full name, BAU email (live student / staff / not-allowed hint), password with rule hint, confirm,
- * terms. "Create Account" stays disabled until everything is valid; the server then emails a 6-digit code.
+ * terms. "Create Account" stays disabled until everything is valid; the server then creates the account and signs in.
  */
 @Composable
 internal fun SignUpScreen(

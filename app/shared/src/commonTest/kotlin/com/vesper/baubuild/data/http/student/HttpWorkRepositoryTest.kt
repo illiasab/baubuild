@@ -3,6 +3,8 @@ package com.vesper.baubuild.data.http.student
 import com.vesper.baubuild.core.model.ChangeStatus
 import com.vesper.baubuild.core.model.MembershipStatus
 import com.vesper.baubuild.core.model.ReviewStageState
+import com.vesper.baubuild.core.model.TaskPriority
+import com.vesper.baubuild.core.model.TaskResource
 import com.vesper.baubuild.core.model.TaskStatus
 import com.vesper.baubuild.core.network.ApiException
 import io.ktor.http.HttpStatusCode
@@ -127,5 +129,64 @@ class HttpWorkRepositoryTest {
         )
         repo.updateTaskStatus("library", "t1", TaskStatus.Backlog)
         assertEquals("""{"status":"todo"}""", backend.calls.single().body)
+    }
+
+    @Test
+    fun tasksCarryTheBriefCriteriaPriorityAndResources() = runTest {
+        backend.on("GET", "/v1/projects/library", body = Fixtures.projectDetail(membership = "joined"))
+        backend.on("GET", "/v1/projects/library/tasks", body = Fixtures.TASKS_V2)
+        backend.on("GET", "/v1/projects/library/changes", body = Fixtures.CHANGES_V2)
+
+        val ws = repo.workspace("library")
+        val t1 = ws.tasks[0]
+        assertEquals("Parse the chosen date and compare it with today.", t1.description)
+        assertEquals(listOf("Yesterday is refused", "Today still submits"), t1.acceptanceCriteria) // blank dropped
+        assertEquals(TaskPriority.High, t1.priority)
+        assertEquals(listOf(TaskResource("MDN: Date", "https://developer.mozilla.org/Date")), t1.resources) // non-http dropped
+        assertEquals(setOf(1), t1.criteriaDone) // out-of-range index ignored
+        assertEquals("2026-11-22", t1.dueDate)
+        val t2 = ws.tasks[1]
+        assertEquals(TaskPriority.Medium, t2.priority) // unknown → medium
+        assertNull(t2.dueDate)
+        assertTrue(t2.acceptanceCriteria.isEmpty())
+
+        // Changes: real messages, sha and commit links; the repo comes from the changes payload.
+        assertEquals("bau-build/library-booking", ws.project.repoFullName)
+        val change = ws.changes[0]
+        assertEquals("Reject dates before today", change.title)
+        assertEquals("abc1234", change.sha)
+        assertEquals(ChangeStatus.ChangesRequested, change.status)
+        assertEquals("https://github.com/bau-build/library-booking/compare/fix-date-validation", change.url)
+        val pushed = ws.changes[1]
+        assertEquals("https://github.com/bau-build/library-booking/commit/fedcba9876543", pushed.url)
+    }
+
+    @Test
+    fun updateTaskCriteriaPatchesTheTickedIndexes() = runTest {
+        backend.on(
+            "PATCH", "/v1/tasks/t1",
+            body = """{"id": "t1", "title": "x", "status": "in_progress", "lane": "assigned",
+                "acceptance_criteria": ["a", "b", "c"], "criteria_done": [0, 2]}""",
+        )
+        val task = repo.updateTaskCriteria("library", "t1", setOf(2, 0))
+        assertEquals("""{"criteria_done":[0,2]}""", backend.calls.single().body)
+        assertEquals(setOf(0, 2), task.criteriaDone)
+    }
+
+    @Test
+    fun workspaceRendersWithoutGitHub() = runTest {
+        backend.on("GET", "/v1/projects/library", body = Fixtures.projectDetail(membership = "joined", repoName = null))
+        backend.on("GET", "/v1/projects/library/tasks", body = Fixtures.TASKS_V2)
+        backend.on(
+            "GET", "/v1/projects/library/changes",
+            body = """{"connected": false, "repo": null, "repo_full_name": null, "github_error": "GitHub is not configured",
+                "branches": [{"name": "fix", "commits": [{"id": "s1", "message": "fix", "state": "pending"}]}], "github_commits": []}""",
+        )
+        val ws = repo.workspace("library")
+        assertNull(ws.project.repoFullName)
+        assertNull(ws.project.repoUrl)
+        assertEquals(1, ws.changes.size)
+        assertNull(ws.changes.single().url)
+        assertEquals(ChangeStatus.WithDevLead, ws.changes.single().status)
     }
 }

@@ -34,20 +34,6 @@ class AuthViewModelTest : ViewModelTest() {
     }
 
     @Test
-    fun openVerifyEmailPushesTheScreenWithAFreshRequest() {
-        val vm = vm()
-        vm.navigateTo(AuthScreen.SignUp)
-        vm.openVerifyEmail(" sam@stu.bau.edu ", 30)
-        val first = vm.state.value.verification!!
-        assertEquals(AuthScreen.VerifyEmail, vm.state.value.screen)
-        assertEquals("sam@stu.bau.edu", first.email)
-        assertEquals(30L, first.resendAfterSeconds)
-        vm.back()
-        vm.openVerifyEmail("sam@stu.bau.edu", null)
-        assertTrue(vm.state.value.verification!!.id != first.id)
-    }
-
-    @Test
     fun notAllowedBlocksAndUseAnotherAccountGoesToLogIn() {
         val vm = vm()
         vm.showNotAllowed("alex@gmail.com")
@@ -81,8 +67,8 @@ class AuthViewModelTest : ViewModelTest() {
     }
 
     @Test
-    fun debugInitialScreenIsVisualOnlyAndNeverVerify() {
+    fun debugInitialScreenIsVisualOnly() {
         assertEquals(listOf(AuthScreen.Welcome, AuthScreen.Login), vm(AuthScreen.Login).state.value.backStack)
-        assertEquals(listOf(AuthScreen.Welcome), vm(AuthScreen.VerifyEmail).state.value.backStack)
+        assertEquals(listOf(AuthScreen.Welcome), vm(AuthScreen.Welcome).state.value.backStack)
     }
 }

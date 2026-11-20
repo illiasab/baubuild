@@ -1,5 +1,8 @@
 package com.vesper.baubuild.feature.projects
 
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.clickable
 import com.vesper.baubuild.designsystem.tabBarContentPadding
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
@@ -145,6 +148,14 @@ private fun HorizontalRule() = Box(Modifier.fillMaxWidth().height(1.dp).backgrou
 private fun InfoCard(project: Project) {
     Column(Modifier.fillMaxWidth().projectsCard()) {
         RepoRow(project)
+        project.cloneUrl?.let {
+            HorizontalRule()
+            CloneRow(it)
+        }
+        project.classCode?.let {
+            HorizontalRule()
+            InfoRow("Class", it)
+        }
         HorizontalRule()
         InfoRow("Min. Score", project.minScoreDetail)
         HorizontalRule()
@@ -156,8 +167,12 @@ private fun InfoCard(project: Project) {
 
 @Composable
 private fun RepoRow(project: Project) {
+    val uriHandler = LocalUriHandler.current
+    val url = project.repoUrl
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().heightIn(min = 60.dp)
+            .then(if (url != null) Modifier.clickable(onClickLabel = "Open in GitHub") { runCatching { uriHandler.openUri(url) } } else Modifier)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -166,16 +181,32 @@ private fun RepoRow(project: Project) {
         }
         Column(Modifier.weight(1f)) {
             Text("GitHub Repo", fontSize = 17.sp, lineHeight = 22.sp, color = BauColors.Ink)
+            val repo = project.repoFullName ?: project.repoName
             Text(
-                project.repoName ?: "Not set up yet",
+                repo ?: "Not set up yet",
                 fontSize = 13.sp, lineHeight = 18.sp, color = BauColors.TextSecondary,
-                fontFamily = if (project.repoName != null) MonoFamily else null,
+                fontFamily = if (repo != null) MonoFamily else null,
             )
         }
         Text(
-            if (project.repoConnected) "Connected" else "Not connected",
-            fontSize = 15.sp, color = BauColors.TextSecondary,
+            when {
+                url != null -> "Open in GitHub"
+                project.repoConnected -> "Connected"
+                else -> "Not connected"
+            },
+            fontSize = 15.sp, color = if (url != null) BauColors.Blue else BauColors.TextSecondary,
         )
+    }
+}
+
+/** `git clone` URL, selectable so it can be copied. */
+@Composable
+private fun CloneRow(cloneUrl: String) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("Clone", fontSize = 16.sp, lineHeight = 21.sp, color = BauColors.Ink)
+        SelectionContainer {
+            Text(cloneUrl, fontSize = 13.sp, lineHeight = 18.sp, color = BauColors.TextSecondary, fontFamily = MonoFamily)
+        }
     }
 }
 
@@ -204,9 +235,10 @@ private fun JoinFooter(project: Project, state: ProjectDetailUiState, onJoin: ()
             .tabBarContentPadding(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        val existing = state.existingMembership
         when (val join = state.join) {
             is JoinState.Joined -> JoinedCard(join.status)
-            else -> {
+            else -> if (existing != null) JoinedCard(existing) else {
                 if (join is JoinState.Failed) {
                     InlineError(join.message, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 }

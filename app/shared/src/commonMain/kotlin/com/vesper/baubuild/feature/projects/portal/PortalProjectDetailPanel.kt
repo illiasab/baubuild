@@ -1,5 +1,9 @@
 package com.vesper.baubuild.feature.projects.portal
 
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.clickable
+import com.vesper.baubuild.feature.review.portal.pointerHand
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vesper.baubuild.core.dataOrNull
 import com.vesper.baubuild.core.model.JoinPolicy
+import com.vesper.baubuild.core.model.MembershipStatus
 import com.vesper.baubuild.core.model.Project
 import com.vesper.baubuild.designsystem.BauColors
 import com.vesper.baubuild.designsystem.DisplayFamily
@@ -108,17 +113,28 @@ private fun DetailBody(project: Project) {
             add("Reviewed by" to project.reviewer.label)
             add("Due" to project.dueLabel)
             if (project.taskCount > 0) add("Tasks" to project.taskCount.toString())
-            project.repoName?.let { add("Repository" to if (project.repoConnected) "$it · connected" else "$it · not connected") }
+            (project.repoFullName ?: project.repoName)?.let { add("Repository" to if (project.repoConnected) "$it · connected" else "$it · not connected") }
             project.classCode?.let { add("Class" to it) }
+            project.cloneUrl?.let { add("Clone" to it) }
         }
         rows.forEachIndexed { i, (label, value) ->
             if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(PortalColors.ChipBorder))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(label, Modifier.weight(1f), fontSize = 14.sp, color = BauColors.TextSecondary)
-                Text(value, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink,
-                    fontFamily = if (label == "Repository") MonoFamily else null)
+                SelectionContainer {
+                    Text(value, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Ink,
+                        fontFamily = if (label == "Repository" || label == "Clone") MonoFamily else null)
+                }
             }
         }
+    }
+    project.repoUrl?.let { url ->
+        val uriHandler = LocalUriHandler.current
+        Text(
+            "Open in GitHub",
+            modifier = Modifier.clickable { runCatching { uriHandler.openUri(url) } }.pointerHand(),
+            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = BauColors.Blue,
+        )
     }
 }
 
@@ -134,14 +150,17 @@ private fun JoinFooter(project: Project, state: ProjectDetailUiState, onJoin: ()
         if (join is JoinState.Failed) {
             InlineError(join.message, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
+        val existing = state.existingMembership
         PortalButton(
             text = when {
+                existing == MembershipStatus.In -> "You’re in"
+                existing != null -> "Request sent"
                 eligibility is JoinEligibility.BelowMinScore -> "Needs score ${eligibility.required}+"
                 join is JoinState.Failed -> "Try Again"
                 else -> project.joinCtaLabel
             },
             onClick = onJoin,
-            primary = project.joinPolicy == JoinPolicy.Open || join is JoinState.Failed,
+            primary = existing == null && (project.joinPolicy == JoinPolicy.Open || join is JoinState.Failed),
             enabled = state.canJoin || join is JoinState.Joining,
             loading = join is JoinState.Joining,
             modifier = Modifier.fillMaxWidth().height(48.dp),
